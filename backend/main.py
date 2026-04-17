@@ -1,4 +1,7 @@
 import os
+import threading
+import time
+import httpx
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -16,43 +19,8 @@ DEFAULT_ACCOUNTS = [
     {"username": "sankalpdevtester", "token": os.getenv("SANKALPDEVTESTER_TOKEN", ""), "active": True, "display_only": False},
 ]
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    _migrate_json_to_db()
-    _seed_accounts()
-    start_scheduler()
-    _start_self_ping()
-    yield
-
-def _start_self_ping():
-    """Ping self every 5 minutes to prevent Render free tier spin down."""
-    import threading, httpx, time
-    def ping():
-        while True:
-            time.sleep(270)
-            try:
-                httpx.get("https://lazybee.onrender.com", timeout=10)
-            except Exception:
-                pass
-    threading.Thread(target=ping, daemon=True).start()
-
-def _seed_accounts():
-    """Always ensure accounts are present - survives redeployments."""
-    data = read_json("accounts")
-    existing = {a["username"]: a for a in data.get("accounts", [])}
-    for acc in DEFAULT_ACCOUNTS:
-        if acc["username"] not in existing:
-            existing[acc["username"]] = acc
-        else:
-            # Update token from env in case it changed, keep other settings
-            if not acc["display_only"] and acc["token"]:
-                existing[acc["username"]]["token"] = acc["token"]
-    write_json("accounts", {"accounts": list(existing.values())})
-
 def _migrate_json_to_db():
-    """One-time migration of existing JSON files into SQLite."""
     import json
-    from pathlib import Path
     for filename in ["auth.json", "accounts.json", "rotation.json"]:
         path = DATA_DIR / filename
         if path.exists():
@@ -63,6 +31,36 @@ def _migrate_json_to_db():
                 path.rename(path.with_suffix(".json.migrated"))
             except Exception:
                 pass
+
+def _seed_accounts():
+    data = read_json("accounts")
+    existing = {a["username"]: a for a in data.get("accounts", [])}
+    for acc in DEFAULT_ACCOUNTS:
+        if acc["username"] not in existing:
+            existing[acc["username"]] = acc
+        else:
+            if not acc["display_only"] and acc["token"]:
+                existing[acc["username"]]["token"] = acc["token"]
+    write_json("accounts", {"accounts": list(existing.values())})
+
+def _start_self_ping():
+    def ping():
+        while True:
+            time.sleep(270)
+            try:
+                httpx.get("https://lazybee.onrender.com", timeout=10)
+            except Exception:
+                pass
+    threading.Thread(target=ping, daemon=True).start()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _migrate_json_to_db()
+    _seed_accounts()
+    start_scheduler()
+    _start_self_ping()
+    yield
+
 app = FastAPI(lifespan=lifespan)
 
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
