@@ -13,9 +13,9 @@ from app.scheduler.jobs import start_scheduler
 from app.storage import read_json, write_json, DATA_DIR
 
 DEFAULT_ACCOUNTS = [
-    {"username": "Shivaani-spec", "token": "", "active": True, "display_only": True},
-    {"username": "PirateKingLuffie", "token": "", "active": True, "display_only": True},
-    {"username": "liveinsaaninsaan", "token": "", "active": True, "display_only": True},
+    {"username": "Shivaani-spec", "token": os.getenv("SHIVAANI_TOKEN", ""), "active": True, "display_only": True},
+    {"username": "PirateKingLuffie", "token": os.getenv("PIRATE_TOKEN", ""), "active": True, "display_only": True},
+    {"username": "liveinsaaninsaan", "token": os.getenv("LIVE_TOKEN", ""), "active": True, "display_only": True},
     {"username": "sankalpdevtester", "token": os.getenv("SANKALPDEVTESTER_TOKEN", ""), "active": True, "display_only": False},
 ]
 
@@ -80,5 +80,6 @@ app.include_router(chat.router, prefix="/api/chat")
 app.include_router(dashboard.router, prefix="/api/dashboard")
 
 @app.get("/")
+@app.head("/")
 def health():
     return {"status": "ok"}
