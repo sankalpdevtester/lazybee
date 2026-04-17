@@ -67,3 +67,7 @@ app.include_router(github.router, prefix="/api/github")
 app.include_router(leetcode.router, prefix="/api/leetcode")
 app.include_router(chat.router, prefix="/api/chat")
 app.include_router(dashboard.router, prefix="/api/dashboard")
+
+@app.get("/")
+def health():
+    return {"status": "ok"}
