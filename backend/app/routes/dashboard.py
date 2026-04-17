@@ -19,3 +19,10 @@ async def dashboard():
         "recent_logs": logs,
         "leetcode_daily": leetcode,
     }
+
+@router.post("/run-now", dependencies=[Depends(require_auth)])
+def run_now():
+    from app.scheduler.jobs import run_daily_automation
+    import threading
+    threading.Thread(target=run_daily_automation, daemon=True).start()
+    return {"message": "Automation triggered. Check logs for progress."}

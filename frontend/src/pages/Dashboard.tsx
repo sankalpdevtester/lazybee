@@ -1,14 +1,29 @@
 import { useEffect, useState } from 'react'
-import { GitCommit, ExternalLink, Code2, Activity, RefreshCw } from 'lucide-react'
+import { GitCommit, ExternalLink, Code2, Activity, RefreshCw, Play, Loader } from 'lucide-react'
 import api from '../lib/api'
 
 export default function Dashboard() {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [running, setRunning] = useState(false)
+  const [runMsg, setRunMsg] = useState('')
 
   const load = () => {
     setLoading(true)
     api.get('/dashboard/').then(({ data }) => { setData(data); setLoading(false) })
+  }
+
+  const runNow = async () => {
+    setRunning(true)
+    setRunMsg('')
+    try {
+      const { data } = await api.post('/dashboard/run-now')
+      setRunMsg(data.message)
+      setTimeout(() => load(), 3000)
+    } catch {
+      setRunMsg('Failed to trigger automation.')
+    }
+    setRunning(false)
   }
 
   useEffect(() => { load() }, [])
@@ -28,10 +43,18 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-white">Dashboard</h1>
-        <button onClick={load} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
-          <RefreshCw size={14} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={runNow} disabled={running}
+            className="flex items-center gap-2 bg-bee-yellow text-black text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
+            {running ? <Loader size={14} className="animate-spin" /> : <Play size={14} />}
+            {running ? 'Running...' : 'Run Now'}
+          </button>
+          <button onClick={load} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
+            <RefreshCw size={14} /> Refresh
+          </button>
+        </div>
       </div>
+      {runMsg && <p className="text-sm text-bee-yellow bg-bee-yellow/10 border border-bee-yellow/30 rounded-lg px-4 py-2">{runMsg}</p>}
 
       {/* Automation status */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
