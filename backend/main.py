@@ -21,7 +21,20 @@ async def lifespan(app: FastAPI):
     _migrate_json_to_db()
     _seed_accounts()
     start_scheduler()
+    _start_self_ping()
     yield
+
+def _start_self_ping():
+    """Ping self every 5 minutes to prevent Render free tier spin down."""
+    import threading, httpx, time
+    def ping():
+        while True:
+            time.sleep(270)
+            try:
+                httpx.get("https://lazybee.onrender.com", timeout=10)
+            except Exception:
+                pass
+    threading.Thread(target=ping, daemon=True).start()
 
 def _seed_accounts():
     """Always ensure accounts are present - survives redeployments."""
