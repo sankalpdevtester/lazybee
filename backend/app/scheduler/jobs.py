@@ -2,7 +2,7 @@ import random
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from app.storage import read_json, write_json
+from app.storage import read_json, write_json, append_log
 from app.services.gemini_service import generate_project_idea, generate_daily_commit, generate_maintenance_commit, generate_readme
 from app.services.github_service import create_repo_and_init, commit_file
 
@@ -13,25 +13,17 @@ DAYS_PER_SLOT = 3       # switch project slot every 3 days
 PROJECT_COMPLETE_DAYS = 28  # ~1 month to complete a project
 
 def _log(message: str, level: str = "info"):
-    data = read_json("logs.json")
-    logs = data.get("logs", [])
-    logs.append({
-        "timestamp": datetime.utcnow().isoformat(),
-        "account": AUTOMATION_ACCOUNT,
-        "message": message,
-        "level": level,
-    })
-    write_json("logs.json", {"logs": logs[-500:]})
+    append_log(datetime.utcnow().isoformat(), AUTOMATION_ACCOUNT, message, level)
 
 def _get_automation_account() -> dict | None:
-    data = read_json("accounts.json")
+    data = read_json("accounts")
     return next((a for a in data.get("accounts", []) if a["username"] == AUTOMATION_ACCOUNT and not a.get("display_only")), None)
 
 def _get_state() -> dict:
-    return read_json("rotation.json")
+    return read_json("rotation")
 
 def _save_state(state: dict):
-    write_json("rotation.json", state)
+    write_json("rotation", state)
 
 def _days_since(iso_str: str) -> int:
     if not iso_str:

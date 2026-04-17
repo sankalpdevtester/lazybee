@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from app.routes.deps import require_auth
-from app.storage import read_json, write_json
+from app.storage import read_json, write_json, get_logs
 from app.services.github_service import get_account_stats, get_all_repos, get_contribution_graph, get_languages
 
 router = APIRouter()
@@ -12,41 +12,41 @@ class AccountBody(BaseModel):
 
 @router.get("/accounts", dependencies=[Depends(require_auth)])
 def list_accounts():
-    data = read_json("accounts.json")
+    data = read_json("accounts")
     accounts = data.get("accounts", [])
     return [{"username": a["username"], "active": a.get("active", True)} for a in accounts]
 
 @router.post("/accounts", dependencies=[Depends(require_auth)])
 def add_account(body: AccountBody):
-    data = read_json("accounts.json")
+    data = read_json("accounts")
     accounts = data.get("accounts", [])
     if any(a["username"] == body.username for a in accounts):
         return {"message": "Account already exists."}
     accounts.append({"username": body.username, "token": body.token, "active": True})
-    write_json("accounts.json", {"accounts": accounts})
+    write_json("accounts", {"accounts": accounts})
     return {"message": "Account added."}
 
 @router.delete("/accounts/{username}", dependencies=[Depends(require_auth)])
 def remove_account(username: str):
-    data = read_json("accounts.json")
+    data = read_json("accounts")
     accounts = [a for a in data.get("accounts", []) if a["username"] != username]
-    write_json("accounts.json", {"accounts": accounts})
+    write_json("accounts", {"accounts": accounts})
     return {"message": "Account removed."}
 
 @router.patch("/accounts/{username}/toggle", dependencies=[Depends(require_auth)])
 def toggle_account(username: str):
-    data = read_json("accounts.json")
+    data = read_json("accounts")
     accounts = data.get("accounts", [])
     for a in accounts:
         if a["username"] == username:
             a["active"] = not a.get("active", True)
-    write_json("accounts.json", {"accounts": accounts})
+    write_json("accounts", {"accounts": accounts})
     return {"message": "Toggled."}
 
 @router.get("/stats", dependencies=[Depends(require_auth)])
 async def all_stats():
     import asyncio
-    data = read_json("accounts.json")
+    data = read_json("accounts")
     accounts = data.get("accounts", [])
     results = await asyncio.gather(
         *[get_account_stats(a["username"], a["token"]) for a in accounts],
@@ -56,7 +56,7 @@ async def all_stats():
 
 @router.get("/repos/{username}", dependencies=[Depends(require_auth)])
 async def repos(username: str):
-    data = read_json("accounts.json")
+    data = read_json("accounts")
     account = next((a for a in data.get("accounts", []) if a["username"] == username), None)
     if not account:
         return []
@@ -64,7 +64,7 @@ async def repos(username: str):
 
 @router.get("/profile/{username}", dependencies=[Depends(require_auth)])
 async def profile(username: str):
-    data = read_json("accounts.json")
+    data = read_json("accounts")
     account = next((a for a in data.get("accounts", []) if a["username"] == username), None)
     if not account:
         return {"error": "Account not found"}
@@ -76,5 +76,5 @@ async def profile(username: str):
     return {"stats": {**stats, "languages": languages}, "graph": graph, "repos": repos, "display_only": account.get("display_only", False)}
 
 @router.get("/logs", dependencies=[Depends(require_auth)])
-def get_logs():
-    return read_json("logs.json").get("logs", [])
+def get_logs_route():
+    return get_logs()

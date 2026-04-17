@@ -19,7 +19,7 @@ class PinBody(BaseModel):
     pin: str
 
 def _auth_data():
-    return read_json("auth.json")
+    return read_json("auth")
 
 def _is_registered():
     return bool(_auth_data().get("pin_hash"))
@@ -43,7 +43,7 @@ def register(body: PinBody):
     if len(body.pin) < 10:
         raise HTTPException(status_code=400, detail="PIN must be at least 10 characters.")
     hashed = bcrypt.hashpw(body.pin.encode(), bcrypt.gensalt()).decode()
-    write_json("auth.json", {"pin_hash": hashed, "failed_attempts": 0, "lockout_until": None})
+    write_json("auth", {"pin_hash": hashed, "failed_attempts": 0, "lockout_until": None})
     return {"message": "Registered successfully."}
 
 @router.post("/login")
@@ -58,8 +58,8 @@ def login(body: PinBody, request: Request):
         if attempts >= LOCKOUT_ATTEMPTS:
             lockout_until = (datetime.utcnow() + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
             attempts = 0
-        write_json("auth.json", {**data, "failed_attempts": attempts, "lockout_until": lockout_until})
+        write_json("auth", {**data, "failed_attempts": attempts, "lockout_until": lockout_until})
         raise HTTPException(status_code=401, detail="Invalid PIN.")
-    write_json("auth.json", {**data, "failed_attempts": 0, "lockout_until": None})
+    write_json("auth", {**data, "failed_attempts": 0, "lockout_until": None})
     token = jwt.encode({"sub": "owner", "exp": datetime.utcnow() + timedelta(days=30)}, JWT_SECRET, algorithm="HS256")
     return {"token": token}
