@@ -2,9 +2,10 @@ from google import genai
 import os, json, re
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+MODEL = "gemini-2.0-flash"
 
 def _ask(prompt: str) -> str:
-    response = client.models.generate_content(model="gemini-1.5-flash", contents=prompt)
+    response = client.models.generate_content(model=MODEL, contents=prompt)
     return response.text
 
 def _parse_json(text: str) -> dict:
