@@ -4,7 +4,7 @@ python-dotenv
 bcrypt
 pyjwt
 PyGithub
-google-genai
+groq
 apscheduler
 httpx
 slowapi
