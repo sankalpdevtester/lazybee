@@ -2,7 +2,7 @@ from google import genai
 import os, json, re
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-MODEL = "gemini-2.0-flash-lite"
+MODEL = "gemini-2.5-flash"
 
 def _ask(prompt: str) -> str:
     response = client.models.generate_content(model=MODEL, contents=prompt)
