@@ -11,17 +11,18 @@ class MessageBody(BaseModel):
 
 @router.post("/", dependencies=[Depends(require_auth)])
 def chat(body: MessageBody):
-    rotation = read_json("rotation")
-    accounts_data = read_json("accounts")
-    accounts = [a["username"] for a in accounts_data.get("accounts", [])]
+    state = read_json("rotation")
+    projects = state.get("projects", {})
     logs = get_logs(5)
+    slot0 = projects.get(state.get("slot_0", ""), {})
+    slot1 = projects.get(state.get("slot_1", ""), {})
 
     context = f"""
 Current app state:
-- Automation account: sankalpdevtester (only this account gets AI commits)
-- Display only accounts: Shivaani-spec, PirateKingLuffie, liveinsaaninsaan (no automation)
-- Active projects: {list(rotation.get('projects', {}).keys())}
-- Current slot: {rotation.get('current_slot', 0)}
+- Automation account: sankalpdevtester only
+- Active project slot 0: {slot0.get('title', 'none')} (day {slot0.get('day', 0)}/28)
+- Active project slot 1: {slot1.get('title', 'none')} (day {slot1.get('day', 0)}/28)
+- Current slot: {state.get('current_slot', 0)}
 - Recent log: {logs[-1]['message'] if logs else 'no activity yet'}
 """
     reply = chat_with_context(body.message, context)
