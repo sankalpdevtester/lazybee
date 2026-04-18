@@ -7,6 +7,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [runMsg, setRunMsg] = useState('')
+  const [lcRunning, setLcRunning] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -24,6 +25,18 @@ export default function Dashboard() {
       setRunMsg('Failed to trigger automation.')
     }
     setRunning(false)
+  }
+
+  const runLeetcode = async () => {
+    setLcRunning(true)
+    setRunMsg('')
+    try {
+      const { data } = await api.post('/dashboard/run-leetcode')
+      setRunMsg(data.message)
+    } catch {
+      setRunMsg('Failed to trigger LeetCode automation.')
+    }
+    setLcRunning(false)
   }
 
   useEffect(() => { load() }, [])
@@ -47,7 +60,12 @@ export default function Dashboard() {
           <button onClick={runNow} disabled={running}
             className="flex items-center gap-2 bg-bee-yellow text-black text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
             {running ? <Loader size={14} className="animate-spin" /> : <Play size={14} />}
-            {running ? 'Running...' : 'Run Now'}
+            {running ? 'Running...' : 'Run GitHub'}
+          </button>
+          <button onClick={runLeetcode} disabled={lcRunning}
+            className="flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
+            {lcRunning ? <Loader size={14} className="animate-spin" /> : <Play size={14} />}
+            {lcRunning ? 'Running...' : 'Run LeetCode'}
           </button>
           <button onClick={load} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
             <RefreshCw size={14} /> Refresh

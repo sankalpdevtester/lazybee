@@ -25,4 +25,13 @@ def run_now():
     from app.scheduler.jobs import run_daily_automation
     import threading
     threading.Thread(target=run_daily_automation, daemon=True).start()
-    return {"message": "Automation triggered. Check logs for progress."}
+    return {"message": "GitHub automation triggered. Check logs for progress."}
+
+@router.post("/run-leetcode", dependencies=[Depends(require_auth)])
+def run_leetcode():
+    import threading, asyncio
+    from app.services.leetcode_auto import run_daily_leetcode
+    def _run():
+        asyncio.run(run_daily_leetcode(5))
+    threading.Thread(target=_run, daemon=True).start()
+    return {"message": "LeetCode automation triggered. Solving 5 problems with delays. Check logs."}

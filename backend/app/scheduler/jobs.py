@@ -143,6 +143,16 @@ def _continue_project(token: str, state: dict, projects: dict, project_name: str
 def start_scheduler():
     hour = random.randint(9, 23)
     minute = random.randint(0, 59)
+    # GitHub automation - random time daily
     scheduler.add_job(run_daily_automation, CronTrigger(hour=hour, minute=minute), id="daily_automation", replace_existing=True)
+    # LeetCode automation - different random time daily
+    lc_hour = random.randint(10, 22)
+    lc_minute = random.randint(0, 59)
+    scheduler.add_job(_run_leetcode, CronTrigger(hour=lc_hour, minute=lc_minute), id="daily_leetcode", replace_existing=True)
     scheduler.start()
-    _log(f"Scheduler started - daily job at {hour:02d}:{minute:02d} UTC")
+    _log(f"Scheduler started - GitHub at {hour:02d}:{minute:02d} UTC, LeetCode at {lc_hour:02d}:{lc_minute:02d} UTC")
+
+def _run_leetcode():
+    import asyncio
+    from app.services.leetcode_auto import run_daily_leetcode
+    asyncio.run(run_daily_leetcode(5))
