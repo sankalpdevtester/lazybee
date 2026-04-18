@@ -8,5 +8,4 @@ google-genai
 apscheduler
 httpx
 slowapi
-sqlalchemy
-aiosqlite
+upstash-redis

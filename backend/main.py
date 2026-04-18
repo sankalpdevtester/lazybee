@@ -19,19 +19,6 @@ DEFAULT_ACCOUNTS = [
     {"username": "sankalpdevtester", "token": os.getenv("SANKALPDEVTESTER_TOKEN", ""), "active": True, "display_only": False},
 ]
 
-def _migrate_json_to_db():
-    import json
-    for filename in ["auth.json", "accounts.json", "rotation.json"]:
-        path = DATA_DIR / filename
-        if path.exists():
-            try:
-                data = json.loads(path.read_text())
-                key = filename.replace(".json", "")
-                write_json(key, data)
-                path.rename(path.with_suffix(".json.migrated"))
-            except Exception:
-                pass
-
 def _seed_accounts():
     data = read_json("accounts")
     existing = {a["username"]: a for a in data.get("accounts", [])}
@@ -55,7 +42,6 @@ def _start_self_ping():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _migrate_json_to_db()
     _seed_accounts()
     start_scheduler()
     _start_self_ping()
