@@ -18,9 +18,10 @@ def chat(body: MessageBody):
 
     context = f"""
 Current app state:
-- Linked GitHub accounts: {', '.join(accounts) if accounts else 'none yet'}
-- Current rotation index: {rotation.get('current_index', 0)}
+- Automation account: sankalpdevtester (only this account gets AI commits)
+- Display only accounts: Shivaani-spec, PirateKingLuffie, liveinsaaninsaan (no automation)
 - Active projects: {list(rotation.get('projects', {}).keys())}
+- Current slot: {rotation.get('current_slot', 0)}
 - Recent log: {logs[-1]['message'] if logs else 'no activity yet'}
 """
     reply = chat_with_context(body.message, context)
