@@ -17,17 +17,16 @@ def _parse_json(text: str) -> dict:
     except Exception:
         return {}
 
-def generate_project_idea(existing_projects: list[str]) -> dict:
+def generate_project_idea(existing_projects: list[str], language: str = "TypeScript") -> dict:
     avoid = ", ".join(existing_projects) if existing_projects else "none"
     prompt = f"""
 You are a senior software engineer. Suggest ONE large, comprehensive CS project for a developer portfolio.
 
 Requirements:
-- Must be a REAL, impressive full-stack project: web app, SaaS tool, developer platform, or CS-related website
+- Must be a REAL, impressive full-stack project: web app, SaaS tool, developer platform, CLI tool, API, or CS-related website
 - Must have AT LEAST 50 distinct features across 10+ pages/routes
 - Must be production-quality with professional UI
-- Examples: full e-commerce platform, project management SaaS, social coding platform, AI-powered dashboard, developer portfolio CMS, real-time collaboration tool, learning management system, job board platform
-- Language: TypeScript (React/Next.js + Node/FastAPI backend)
+- Language/Stack: {language} - use the most appropriate framework for this language
 - Must be completable incrementally over 28 days with daily commits
 - Avoid these already existing: {avoid}
 
@@ -36,32 +35,26 @@ Respond ONLY in this exact JSON format, no extra text:
   "name": "repo-name-in-kebab-case",
   "title": "Human Readable Title",
   "description": "Two sentence description of what it does and who it helps",
-  "language": "TypeScript",
-  "stack": "React + TypeScript + Tailwind + FastAPI + SQLite",
-  "folder_structure": ["src/", "src/components/", "src/pages/", "src/hooks/", "src/lib/", "src/types/", "backend/", "backend/routes/", "backend/models/", "docs/", "public/"],
-  "features": [
-    "User authentication and authorization",
-    "Dashboard with analytics"
-  ],
-  "pages": [
-    "/home - Landing page",
-    "/dashboard - Main dashboard"
-  ],
+  "language": "{language}",
+  "stack": "specific framework and tools for {language}",
+  "folder_structure": ["src/", "src/components/", "src/pages/", "src/lib/", "docs/", "tests/"],
+  "features": ["feature 1", "feature 2"],
+  "pages": ["/home", "/dashboard"],
   "roadmap": [
-    "Day 1-2: Project setup, folder structure, README, auth system",
-    "Day 3-4: Database models, core API endpoints",
-    "Day 5-6: Main dashboard UI",
-    "Day 7-8: Core feature 1 implementation",
-    "Day 9-10: Core feature 2 implementation",
-    "Day 11-12: Core feature 3 + API integration",
+    "Day 1-2: Project setup, folder structure, README, core config",
+    "Day 3-4: Database models and core data layer",
+    "Day 5-6: Authentication and user management",
+    "Day 7-8: Core feature 1",
+    "Day 9-10: Core feature 2",
+    "Day 11-12: Core feature 3",
     "Day 13-14: Secondary features batch 1",
     "Day 15-16: Secondary features batch 2",
-    "Day 17-18: UI polish, responsive design",
-    "Day 19-20: Testing, error handling",
-    "Day 21-22: Performance optimization",
-    "Day 23-24: Documentation, API docs",
-    "Day 25-26: Deployment config, CI/CD",
-    "Day 27-28: Final polish, README update"
+    "Day 17-18: UI components and styling",
+    "Day 19-20: API integration and testing",
+    "Day 21-22: Performance and optimization",
+    "Day 23-24: Documentation and API docs",
+    "Day 25-26: Deployment config",
+    "Day 27-28: Final polish and README"
   ]
 }}
 """

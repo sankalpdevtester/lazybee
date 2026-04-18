@@ -9,8 +9,15 @@ from app.services.github_service import create_repo_and_init, commit_file
 scheduler = BackgroundScheduler()
 
 AUTOMATION_ACCOUNT = "sankalpdevtester"
-DAYS_PER_SLOT = 3
-PROJECT_COMPLETE_DAYS = 28
+
+# 20+ languages to cycle through
+LANGUAGES = [
+    "Python", "TypeScript", "JavaScript", "Java", "Go",
+    "Rust", "C++", "C#", "PHP", "Ruby",
+    "Swift", "Kotlin", "Scala", "R", "Dart",
+    "Elixir", "Haskell", "Lua", "Perl", "Shell",
+    "C", "Zig"
+]
 
 def _log(message: str, level: str = "info"):
     append_log(datetime.utcnow().isoformat(), AUTOMATION_ACCOUNT, message, level)
@@ -34,84 +41,140 @@ def _days_since(iso_str: str) -> int:
     except Exception:
         return 999
 
+def _week_of_month() -> int:
+    return (datetime.utcnow().day - 1) // 7
+
+def _day_of_week() -> int:
+    return datetime.utcnow().weekday()  # 0=Monday, 6=Sunday
+
+def _projects_this_month(projects: dict) -> int:
+    now = datetime.utcnow()
+    count = 0
+    for p in projects.values():
+        started = p.get("started_at", "")
+        if started:
+            try:
+                d = datetime.fromisoformat(started)
+                if d.month == now.month and d.year == now.year:
+                    count += 1
+            except Exception:
+                pass
+    return count
+
+def _next_language(projects: dict) -> str:
+    used = [p.get("language", "") for p in projects.values()]
+    # Pick least used language
+    counts = {lang: used.count(lang) for lang in LANGUAGES}
+    min_count = min(counts.values())
+    available = [lang for lang, c in counts.items() if c == min_count]
+    return random.choice(available)
+
 def run_daily_automation():
+    """Main daily job - runs once per day for GitHub commits."""
     token = _get_token()
     if not token:
-        _log("No token found for sankalpdevtester", "error")
+        _log("No token for sankalpdevtester", "error")
         return
 
     state = _get_state()
     projects = state.get("projects", {})
-    slot_start = state.get("slot_start")
-    current_slot = state.get("current_slot", 0)
+    day_of_week = _day_of_week()
 
-    # Switch project slot every 3 days
-    if not slot_start or _days_since(slot_start) >= DAYS_PER_SLOT:
-        current_slot = (current_slot + 1) % 2
-        state["current_slot"] = current_slot
-        state["slot_start"] = datetime.utcnow().isoformat()
-        _save_state(state)
-        _log(f"Switched to project slot {current_slot}")
+    # Day 7 (Sunday) = maintenance on both active projects
+    if day_of_week == 6:
+        _do_weekly_maintenance(token, state, projects)
+        return
 
+    # First week of month = check if any old projects need revival
+    if _week_of_month() == 0 and day_of_week == 0:
+        _revive_old_projects(token, state, projects)
+
+    # Determine active slot (slot 0 = Mon-Wed, slot 1 = Thu-Sat)
+    current_slot = 0 if day_of_week < 3 else 1
+    state["current_slot"] = current_slot
     slot_key = f"slot_{current_slot}"
     slot_project_name = state.get(slot_key)
     project = projects.get(slot_project_name) if slot_project_name else None
 
+    # Check monthly project cap (max 8)
+    monthly_count = _projects_this_month(projects)
+
     if not project:
+        if monthly_count >= 8:
+            # Cap reached - work on existing incomplete project
+            incomplete = [p for p in projects.values() if not p.get("completed")]
+            if incomplete:
+                project = incomplete[0]
+                state[slot_key] = project["name"]
+                _save_state(state)
+                _log(f"Monthly cap reached, resuming: {project['title']}")
+                _continue_project(token, state, projects, project["name"])
+            else:
+                _log("Monthly cap of 8 projects reached, skipping")
+            return
         _create_new_project(token, state, projects, current_slot, slot_key)
     else:
-        days_on_project = _days_since(project.get("started_at", ""))
-        if days_on_project >= PROJECT_COMPLETE_DAYS:
-            projects[slot_project_name]["completed"] = True
-            state["projects"] = projects
-            state[slot_key] = None
-            _save_state(state)
-            _log(f"Project {project['title']} completed after {days_on_project} days")
-            _create_new_project(token, state, projects, current_slot, slot_key)
-        else:
-            _continue_project(token, state, projects, slot_project_name)
+        _continue_project(token, state, projects, slot_project_name)
+
+def run_12h_automation():
+    """Runs every 12 hours - adds a commit to one active project."""
+    token = _get_token()
+    if not token:
+        return
+
+    state = _get_state()
+    projects = state.get("projects", {})
+
+    # Pick any active non-completed project
+    active = [p for p in projects.values() if not p.get("completed")]
+    if not active:
+        return
+
+    project = random.choice(active)
+    try:
+        commit_data = generate_maintenance_commit(project)
+        if not commit_data:
+            return
+        commit_file(token, project["name"], commit_data["file_path"], commit_data["content"], commit_data["commit_message"])
+        projects[project["name"]]["files"] = list(set(project.get("files", []) + [commit_data["file_path"]]))
+        state["projects"] = projects
+        _save_state(state)
+        _log(f"12h commit to {project['title']}: {commit_data['commit_message']}")
+    except Exception as e:
+        _log(f"12h commit failed: {e}", "error")
 
 def _create_new_project(token: str, state: dict, projects: dict, current_slot: int, slot_key: str):
     try:
-        # On even weeks resume an incomplete project, odd weeks create new
-        week_number = (datetime.utcnow() - datetime(2025, 1, 1)).days // 7
-        incomplete = [p for p in projects.values() if not p.get("completed") and p.get("name") not in [state.get("slot_0"), state.get("slot_1")]]
+        existing_names = [p["name"] for p in projects.values()]
+        lang = _next_language(projects)
+        project = generate_project_idea(existing_names, lang)
+        if not project:
+            _log("Gemini returned empty project idea", "error")
+            return
 
-        if incomplete and week_number % 2 == 0:
-            project = incomplete[0]
-            _log(f"Resuming project: {project['title']}")
-        else:
-            existing_names = [p["name"] for p in projects.values()]
-            project = generate_project_idea(existing_names)
-            if not project:
-                _log("Gemini returned empty project idea", "error")
-                return
+        readme = generate_readme(project)
+        repo_url = create_repo_and_init(token, project["name"], project["description"], readme)
 
-            readme = generate_readme(project)
-            repo_url = create_repo_and_init(token, project["name"], project["description"], readme)
+        for folder in project.get("folder_structure", []):
+            if folder.endswith("/"):
+                try:
+                    commit_file(token, project["name"], f"{folder}.gitkeep", "", f"chore: scaffold {folder}")
+                except Exception:
+                    pass
 
-            for folder in project.get("folder_structure", []):
-                if folder.endswith("/"):
-                    try:
-                        commit_file(token, project["name"], f"{folder}.gitkeep", "", f"chore: scaffold {folder} directory")
-                    except Exception:
-                        pass
-
-            project = {
-                **project,
-                "repo_url": repo_url,
-                "day": 1,
-                "files": ["README.md"],
-                "started_at": datetime.utcnow().isoformat(),
-                "completed": False,
-            }
-            projects[project["name"]] = project
-            _log(f"Created new project: {project['title']} at {repo_url}")
-
+        project = {
+            **project,
+            "repo_url": repo_url,
+            "day": 1,
+            "files": ["README.md"],
+            "started_at": datetime.utcnow().isoformat(),
+            "completed": False,
+        }
+        projects[project["name"]] = project
         state[slot_key] = project["name"]
         state["projects"] = projects
         _save_state(state)
-
+        _log(f"Created new {lang} project: {project['title']} at {repo_url}")
     except Exception as e:
         _log(f"Failed to create project: {e}", "error")
 
@@ -135,22 +198,63 @@ def _continue_project(token: str, state: dict, projects: dict, project_name: str
         projects[project_name]["files"] = existing_files
         state["projects"] = projects
         _save_state(state)
-        _log(f"Committed to {project['title']}: {commit_data['commit_message']}")
-
+        _log(f"Day {day} commit to {project['title']}: {commit_data['commit_message']}")
     except Exception as e:
         _log(f"Failed daily commit: {e}", "error")
 
+def _do_weekly_maintenance(token: str, state: dict, projects: dict):
+    """Sunday - add small commits to both active projects."""
+    for slot in ["slot_0", "slot_1"]:
+        name = state.get(slot)
+        if not name or name not in projects:
+            continue
+        try:
+            project = projects[name]
+            commit_data = generate_maintenance_commit(project)
+            if not commit_data:
+                continue
+            commit_file(token, project["name"], commit_data["file_path"], commit_data["content"], commit_data["commit_message"])
+            projects[name]["files"] = list(set(project.get("files", []) + [commit_data["file_path"]]))
+            state["projects"] = projects
+            _save_state(state)
+            _log(f"Weekly maintenance on {project['title']}: {commit_data['commit_message']}")
+        except Exception as e:
+            _log(f"Weekly maintenance failed for {name}: {e}", "error")
+
+def _revive_old_projects(token: str, state: dict, projects: dict):
+    """First Monday of month - add commits to old completed projects to keep them alive."""
+    completed = [p for p in projects.values() if p.get("completed")]
+    if not completed:
+        return
+    # Pick up to 3 random old projects
+    to_revive = random.sample(completed, min(3, len(completed)))
+    for project in to_revive:
+        try:
+            commit_data = generate_maintenance_commit(project)
+            if not commit_data:
+                continue
+            commit_file(token, project["name"], commit_data["file_path"], commit_data["content"], commit_data["commit_message"])
+            _log(f"Monthly revival commit to {project['title']}: {commit_data['commit_message']}")
+        except Exception as e:
+            _log(f"Revival failed for {project['name']}: {e}", "error")
+
 def start_scheduler():
+    # Daily GitHub automation at random time 9AM-11PM UTC
     hour = random.randint(9, 23)
     minute = random.randint(0, 59)
-    # GitHub automation - random time daily
     scheduler.add_job(run_daily_automation, CronTrigger(hour=hour, minute=minute), id="daily_automation", replace_existing=True)
-    # LeetCode automation - different random time daily
+
+    # 12-hour commits - runs twice a day
+    hour2 = (hour + 12) % 24
+    scheduler.add_job(run_12h_automation, CronTrigger(hour=hour2, minute=minute), id="12h_automation", replace_existing=True)
+
+    # LeetCode daily at different random time
     lc_hour = random.randint(10, 22)
     lc_minute = random.randint(0, 59)
     scheduler.add_job(_run_leetcode, CronTrigger(hour=lc_hour, minute=lc_minute), id="daily_leetcode", replace_existing=True)
+
     scheduler.start()
-    _log(f"Scheduler started - GitHub at {hour:02d}:{minute:02d} UTC, LeetCode at {lc_hour:02d}:{lc_minute:02d} UTC")
+    _log(f"Scheduler started - GitHub at {hour:02d}:{minute:02d} UTC, 12h at {hour2:02d}:{minute:02d} UTC, LeetCode at {lc_hour:02d}:{lc_minute:02d} UTC")
 
 def _run_leetcode():
     import asyncio
