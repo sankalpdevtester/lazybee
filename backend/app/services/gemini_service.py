@@ -16,13 +16,24 @@ def _ask(prompt: str) -> str:
     return response.choices[0].message.content
 
 def _parse_json(text: str) -> dict:
+    # Try direct parse first
+    try:
+        return json.loads(text.strip())
+    except Exception:
+        pass
+    # Try extracting JSON block
     match = re.search(r'\{.*\}', text, re.DOTALL)
     if not match:
         return {}
     try:
         return json.loads(match.group())
     except Exception:
-        return {}
+        # Try cleaning common issues
+        cleaned = match.group().replace('\n', '\\n').replace('\t', '\\t')
+        try:
+            return json.loads(cleaned)
+        except Exception:
+            return {}
 
 def generate_project_idea(existing_projects: list[str], language: str = "TypeScript") -> dict:
     avoid = ", ".join(existing_projects) if existing_projects else "none"
@@ -75,29 +86,30 @@ def generate_daily_commit(project: dict, day: int, existing_files: list[str]) ->
     prompt = f"""You are a developer building: {project['title']}
 Description: {project['description']}
 Stack: {stack}
-Folder structure: {', '.join(project.get('folder_structure', []))}
-Total features planned: {len(features)}
-Pages: {', '.join(pages[:5]) if pages else 'multiple'}
 Today goal (day {day}/28): {step}
 Files already created: {', '.join(existing_files) if existing_files else 'none yet'}
 
-Write ONE real complete working code file making meaningful progress.
-Rules:
-- Real working code only, no placeholders, no TODOs
-- At least 60-100 lines of real code
-- Must fit the project folder structure
-- Day 1-2: setup files (package.json/requirements.txt, config files)
-- Day 3+: actual implementation files
-- Use proper types and error handling
-- Make it look professional
+Write ONE real working code file. Respond in this EXACT format with no deviation:
+FILE_PATH: src/example.py
+COMMIT_MESSAGE: feat: add example feature
+CODE_START
+(put the full code here)
+CODE_END"""
 
-Respond ONLY in this exact JSON format, no extra text:
-{{
-  "file_path": "src/components/Header.tsx",
-  "content": "full working file content here",
-  "commit_message": "feat: add header component with navigation"
-}}"""
-    return _parse_json(_ask(prompt))
+    text = _ask(prompt)
+    try:
+        file_path = re.search(r'FILE_PATH:\s*(.+)', text)
+        commit_msg = re.search(r'COMMIT_MESSAGE:\s*(.+)', text)
+        code_match = re.search(r'CODE_START\n(.*?)\nCODE_END', text, re.DOTALL)
+        if file_path and commit_msg and code_match:
+            return {
+                "file_path": file_path.group(1).strip(),
+                "content": code_match.group(1).strip(),
+                "commit_message": commit_msg.group(1).strip(),
+            }
+    except Exception:
+        pass
+    return {}
 
 def generate_readme(project: dict) -> str:
     prompt = f"""Write a professional README.md for this project:
@@ -117,20 +129,29 @@ Description: {project['description']}
 Stack: {project.get('stack', project.get('language', ''))}
 Existing files: {', '.join(project.get('files', [])[:10])}
 
-Write a small real maintenance update. Choose one:
-- Fix a bug or edge case
-- Add a docstring or JSDoc comment
-- Improve error handling
-- Add a small utility helper
-- Update README with better docs
+Write a small real maintenance update: fix a bug, add a docstring, improve error handling, or add a small helper.
 
-Respond ONLY in this exact JSON format, no extra text:
-{{
-  "file_path": "src/utils/helpers.py",
-  "content": "full file content",
-  "commit_message": "fix: improve error handling in helpers"
-}}"""
-    return _parse_json(_ask(prompt))
+Respond in this EXACT format:
+FILE_PATH: src/utils/helpers.py
+COMMIT_MESSAGE: fix: improve error handling
+CODE_START
+(put the full code here)
+CODE_END"""
+
+    text = _ask(prompt)
+    try:
+        file_path = re.search(r'FILE_PATH:\s*(.+)', text)
+        commit_msg = re.search(r'COMMIT_MESSAGE:\s*(.+)', text)
+        code_match = re.search(r'CODE_START\n(.*?)\nCODE_END', text, re.DOTALL)
+        if file_path and commit_msg and code_match:
+            return {
+                "file_path": file_path.group(1).strip(),
+                "content": code_match.group(1).strip(),
+                "commit_message": commit_msg.group(1).strip(),
+            }
+    except Exception:
+        pass
+    return {}
 
 def chat_with_context(message: str, context: str) -> str:
     system = "You are the LazyBee AI assistant. LazyBee automates GitHub commits across multiple accounts, builds real CS projects daily, and solves LeetCode problems automatically. Be concise and direct."

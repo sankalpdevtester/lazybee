@@ -9,6 +9,7 @@ from app.services.github_service import create_repo_and_init, commit_file
 scheduler = BackgroundScheduler()
 
 AUTOMATION_ACCOUNT = "sankalpdevtester"
+BLOCKED_REPOS = {"lazybee"}  # never touch these
 
 # 20+ languages to cycle through
 LANGUAGES = [
@@ -102,7 +103,7 @@ def run_daily_automation():
     if not project:
         if monthly_count >= 8:
             # Cap reached - work on existing incomplete project
-            incomplete = [p for p in projects.values() if not p.get("completed")]
+            incomplete = [p for p in projects.values() if not p.get("completed") and p.get("name") not in BLOCKED_REPOS]
             if incomplete:
                 project = incomplete[0]
                 state[slot_key] = project["name"]
@@ -114,6 +115,11 @@ def run_daily_automation():
             return
         _create_new_project(token, state, projects, current_slot, slot_key)
     else:
+        if slot_project_name in BLOCKED_REPOS:
+            _log(f"Blocked repo {slot_project_name} - clearing slot", "error")
+            state[slot_key] = None
+            _save_state(state)
+            return
         _continue_project(token, state, projects, slot_project_name)
 
 def run_12h_automation():
@@ -126,7 +132,7 @@ def run_12h_automation():
     projects = state.get("projects", {})
 
     # Pick any active non-completed project
-    active = [p for p in projects.values() if not p.get("completed")]
+    active = [p for p in projects.values() if not p.get("completed") and p.get("name") not in BLOCKED_REPOS]
     if not active:
         return
 
@@ -223,7 +229,7 @@ def _do_weekly_maintenance(token: str, state: dict, projects: dict):
 
 def _revive_old_projects(token: str, state: dict, projects: dict):
     """First Monday of month - add commits to old completed projects to keep them alive."""
-    completed = [p for p in projects.values() if p.get("completed")]
+    completed = [p for p in projects.values() if p.get("completed") and p.get("name") not in BLOCKED_REPOS]
     if not completed:
         return
     # Pick up to 3 random old projects
