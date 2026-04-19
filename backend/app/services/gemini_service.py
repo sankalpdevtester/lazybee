@@ -15,7 +15,7 @@ def _ask(prompt: str) -> str:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=4096,
-                timeout=30,
+                timeout=60,
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -174,32 +174,16 @@ CODE_END"""
 
 def generate_leetcode_solution(problem: dict, difficulty: str, lang: str = "python3") -> str:
     title = problem.get("title", "")
-    content = (problem.get("content", "") or "")[:800]
+    content = (problem.get("content", "") or "")[:400]
     snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
 
-    if difficulty == "Hard":
-        style = """- Use the correct optimal algorithm
-- Add 1-2 minor style imperfections (slightly verbose variable names like 'current_node' instead of 'node')
-- Add 1 casual comment like # handle edge case
-- Must still be CORRECT"""
-    else:
-        style = """- Use a clean correct solution
-- Simple variable names (i, j, n, res)
-- Must be 100% CORRECT and pass ALL test cases on first try
-- No clever tricks, straightforward implementation"""
-
-    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}.
+    prompt = f"""Solve this LeetCode problem correctly in {lang}. Return ONLY the code, no explanation.
 
 Problem: {title}
-Description: {content}
-Starting code template:
-{snippet}
+{content}
 
-Requirements:
-{style}
-- Return ONLY the raw code, no markdown, no explanation
-- The solution must be complete and correct"""
-
+Code template:
+{snippet}"""
     return _ask(prompt)
 
 def chat_with_context(message: str, context: str) -> str:
