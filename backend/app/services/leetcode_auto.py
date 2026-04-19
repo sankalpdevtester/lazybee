@@ -34,18 +34,16 @@ async def get_problems(difficulty: str = "EASY", limit: int = 50) -> list:
     data = await _gql(query, {"limit": limit, "filters": {"difficulty": difficulty}})
     return data.get("data", {}).get("problemsetQuestionList", {}).get("questions", [])
 
-async def get_already_attempted() -> set:
-    """Returns all recently attempted slugs (AC and non-AC)."""
+async def get_ac_submissions() -> set:
+    """Only returns ACCEPTED submissions - don't skip failed ones."""
     query = """
     query($username: String!) {
-      recentSubmissionList(username: $username, limit: 100) { titleSlug }
       recentAcSubmissionList(username: $username, limit: 100) { titleSlug }
     }
     """
     data = await _gql(query, {"username": LEETCODE_USERNAME})
-    recent = data.get("data", {}).get("recentSubmissionList", []) or []
     ac = data.get("data", {}).get("recentAcSubmissionList", []) or []
-    return {s["titleSlug"] for s in recent + ac}
+    return {s["titleSlug"] for s in ac}
 
 async def get_problem_detail(slug: str) -> dict:
     query = """
@@ -97,10 +95,6 @@ async def get_badge_progress() -> dict:
         "daily_challenge": daily,
     }
 
-def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
-    difficulty = problem.get("difficulty", "Easy")
-    return generate_leetcode_solution(problem, difficulty, lang)
-
 async def submit_solution(slug: str, question_id: str, code: str, lang: str = "python3") -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
@@ -111,9 +105,8 @@ async def submit_solution(slug: str, question_id: str, code: str, lang: str = "p
         return r.json()
 
 async def check_submission_result(submission_id: int) -> str:
-    """Poll until submission result is ready."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        for _ in range(15):
+    async with httpx.AsyncClient(timeout=60) as client:
+        for _ in range(20):
             await asyncio.sleep(3)
             r = await client.get(
                 f"https://leetcode.com/submissions/detail/{submission_id}/check/",
@@ -142,65 +135,70 @@ async def run_daily_leetcode(num_problems: int = 5):
         daily_slug = daily.get("question", {}).get("titleSlug") if daily else None
         today = datetime.utcnow().strftime("%Y-%m-%d")
 
-        # Load our persistent solved tracking from Redis
+        # Only skip problems we've ACCEPTED - don't skip failed ones
         lc_state = read_json("leetcode_state")
-        our_solved = set(lc_state.get("solved", []))
+        our_accepted = set(lc_state.get("solved", []))
         last_daily_date = lc_state.get("last_daily_date", "")
 
-        # Also get recently attempted from LeetCode API
-        recently_attempted = await get_already_attempted()
-        skip_slugs = our_solved | recently_attempted
+        # Also skip recently AC'd from LeetCode directly
+        lc_ac = await get_ac_submissions()
+        skip_slugs = our_accepted | lc_ac
 
-        log(f"Skipping {len(skip_slugs)} problems | Streak: {progress.get('streak', 0)} days")
+        solved_stats = progress.get("solved", {})
+        log(f"Total solved: Easy={solved_stats.get('Easy',0)} Medium={solved_stats.get('Medium',0)} Hard={solved_stats.get('Hard',0)} | Streak: {progress.get('streak',0)} days")
 
-        # Fetch problems
-        easy = await get_problems("EASY", 50)
-        medium = await get_problems("MEDIUM", 50)
-        hard = await get_problems("HARD", 30)
+        # Fetch all problems
+        easy = await get_problems("EASY", 100)
+        medium = await get_problems("MEDIUM", 100)
+        hard = await get_problems("HARD", 50)
         all_problems = easy + medium + hard
 
-        # Build queue - daily first (only if not done today)
+        log(f"Available: {len(easy)} easy, {len(medium)} medium, {len(hard)} hard | Skipping {len(skip_slugs)} already solved")
+
+        # Build queue - daily first (only once per day)
         queue = []
-        if daily_slug and daily_slug not in skip_slugs and last_daily_date != today:
+        if daily_slug and last_daily_date != today:
             daily_detail = await get_problem_detail(daily_slug)
             if daily_detail and daily_detail.get("questionId"):
                 queue.append(daily_detail)
-                log(f"Daily challenge: {daily_detail.get('title')}")
+                log(f"Daily challenge added: {daily_detail.get('title')} ({daily_detail.get('difficulty')})")
 
-        # Build difficulty pools
-        unsolved = [p for p in all_problems if p["titleSlug"] not in skip_slugs and p["titleSlug"] != daily_slug]
-        easy_pool = [p for p in unsolved if p["difficulty"] == "Easy"]
-        medium_pool = [p for p in unsolved if p["difficulty"] == "Medium"]
-        hard_pool = [p for p in unsolved if p["difficulty"] == "Hard"]
+        # Build pools - only skip accepted ones, not failed attempts
+        easy_pool = [p for p in easy if p["titleSlug"] not in skip_slugs and p["titleSlug"] != daily_slug]
+        medium_pool = [p for p in medium if p["titleSlug"] not in skip_slugs and p["titleSlug"] != daily_slug]
+        hard_pool = [p for p in hard if p["titleSlug"] not in skip_slugs and p["titleSlug"] != daily_slug]
 
-        # Fallback if pools empty
-        if not hard_pool:
-            hard_pool = [p for p in all_problems if p["difficulty"] == "Hard" and p["titleSlug"] not in our_solved]
-        if not medium_pool:
-            medium_pool = [p for p in all_problems if p["difficulty"] == "Medium" and p["titleSlug"] not in our_solved]
-        if not easy_pool:
-            easy_pool = [p for p in all_problems if p["difficulty"] == "Easy" and p["titleSlug"] not in our_solved]
+        log(f"Unsolved pools: {len(easy_pool)} easy, {len(medium_pool)} medium, {len(hard_pool)} hard")
 
         slots = num_problems - len(queue)
         n_hard = max(1, slots // 5)
         n_medium = max(1, slots // 3)
         n_easy = max(1, slots - n_hard - n_medium)
 
-        picks = []
         if hard_pool:
-            picks += random.sample(hard_pool, min(n_hard, len(hard_pool)))
+            queue += random.sample(hard_pool, min(n_hard, len(hard_pool)))
         if medium_pool:
-            picks += random.sample(medium_pool, min(n_medium, len(medium_pool)))
+            queue += random.sample(medium_pool, min(n_medium, len(medium_pool)))
         if easy_pool:
-            picks += random.sample(easy_pool, min(n_easy, len(easy_pool)))
-        random.shuffle(picks)
-        queue += picks
+            queue += random.sample(easy_pool, min(n_easy, len(easy_pool)))
 
-        # Extra fallback
-        if len(queue) < num_problems * 2:
-            extra = [p for p in all_problems if p["titleSlug"] not in {q.get("titleSlug") for q in queue}]
+        # Shuffle non-daily problems
+        daily_item = queue[0] if queue and queue[0].get("titleSlug") == daily_slug else None
+        rest = [q for q in queue if q.get("titleSlug") != daily_slug]
+        random.shuffle(rest)
+        queue = ([daily_item] if daily_item else []) + rest
+
+        # Pad with more problems if needed
+        while len(queue) < num_problems * 3:
+            extra = [p for p in all_problems if p["titleSlug"] not in {q.get("titleSlug") for q in queue} and p["titleSlug"] not in skip_slugs]
+            if not extra:
+                extra = [p for p in all_problems if p["titleSlug"] not in {q.get("titleSlug") for q in queue}]
+            if not extra:
+                break
             random.shuffle(extra)
-            queue += extra[:num_problems * 2]
+            queue += extra[:5]
+
+        log(f"Queue built: {len(queue)} problems to try, need {num_problems} accepted")
 
         accepted_count = 0
         session_tried = set()
@@ -220,49 +218,52 @@ async def run_daily_leetcode(num_problems: int = 5):
                     continue
 
                 if accepted_count > 0:
-                    delay = random.randint(90, 300)
-                    log(f"Waiting {delay}s...")
+                    delay = random.randint(60, 240)
+                    log(f"Waiting {delay}s before next...")
                     await asyncio.sleep(delay)
 
+                difficulty = detail.get("difficulty", "Easy")
+                max_tries = 3 if difficulty in ("Easy", "Medium") else 2
                 accepted = False
-                for attempt in range(2):
-                    code = generate_human_like_solution(detail, "python3")
+
+                for attempt in range(max_tries):
+                    code = generate_leetcode_solution(detail, difficulty, "python3")
                     if not code or len(code) < 10:
+                        log(f"Empty code generated for {detail.get('title')}", "error")
                         continue
 
                     result = await submit_solution(slug, detail["questionId"], code, "python3")
                     submission_id = result.get("submission_id")
                     if not submission_id:
-                        log(f"No submission_id for {detail.get('title')}: {str(result)[:100]}", "error")
+                        log(f"No submission_id for {detail.get('title')}: {str(result)[:150]}", "error")
                         break
 
                     status = await check_submission_result(submission_id)
-                    log(f"({accepted_count+1}/{num_problems}) {detail.get('title')} ({detail.get('difficulty')}) → {status}")
+                    log(f"[{accepted_count+1}/{num_problems}] {detail.get('title')} ({difficulty}) → {status}")
 
                     if status == "Accepted":
                         accepted_count += 1
                         accepted = True
-                        our_solved.add(slug)
+                        our_accepted.add(slug)
                         if slug == daily_slug:
                             lc_state["last_daily_date"] = today
                         break
                     else:
-                        if attempt == 0:
-                            log(f"Retrying {detail.get('title')}...")
-                            await asyncio.sleep(5)
+                        if attempt < max_tries - 1:
+                            log(f"Got {status}, regenerating solution (attempt {attempt+2}/{max_tries})...")
+                            await asyncio.sleep(3)
 
                 if not accepted:
-                    log(f"Could not get Accepted for {detail.get('title')} - moving on")
+                    log(f"Moving on from {detail.get('title')} after {max_tries} attempts")
 
             except Exception as e:
                 log(f"Error on {problem.get('title', slug)}: {e}", "error")
                 continue
 
-        # Save solved tracking to Redis
-        lc_state["solved"] = list(our_solved)
+        lc_state["solved"] = list(our_accepted)
         write_json("leetcode_state", lc_state)
 
-        log(f"Session complete: {accepted_count}/{num_problems} accepted")
+        log(f"✅ Session done: {accepted_count}/{num_problems} accepted")
         badges = await get_badges()
         log(f"Badges: {len(badges.get('earned', []))} earned | Upcoming: {[b['name'] for b in badges.get('upcoming', [])]}")
 

@@ -43,11 +43,19 @@ def _parse_file_format(text: str) -> dict:
     try:
         file_path = re.search(r'FILE_PATH:\s*(.+)', text)
         commit_msg = re.search(r'COMMIT_MESSAGE:\s*(.+)', text)
-        code_match = re.search(r'CODE_START\n(.*?)\nCODE_END', text, re.DOTALL)
+        code_match = re.search(r'CODE_START\s*\n(.*?)\nCODE_END', text, re.DOTALL)
         if file_path and commit_msg and code_match:
             return {
                 "file_path": file_path.group(1).strip(),
                 "content": code_match.group(1).strip(),
+                "commit_message": commit_msg.group(1).strip(),
+            }
+        # Fallback: if model ignored format, try to extract any code block
+        code_block = re.search(r'```(?:\w+)?\n(.*?)\n```', text, re.DOTALL)
+        if file_path and commit_msg and code_block:
+            return {
+                "file_path": file_path.group(1).strip(),
+                "content": code_block.group(1).strip(),
                 "commit_message": commit_msg.group(1).strip(),
             }
     except Exception:

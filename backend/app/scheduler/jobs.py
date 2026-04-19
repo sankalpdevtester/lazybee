@@ -211,6 +211,7 @@ def _continue_project(token: str, state: dict, projects: dict, project_name: str
         day = project.get("day", 1)
         existing_files = project.get("files", [])
 
+        _log(f"Generating day {day} commit for {project['title']}...")
         commit_data = generate_daily_commit(project, day, existing_files)
         if not commit_data:
             _log("Groq returned empty commit - retrying", "error")
@@ -219,6 +220,7 @@ def _continue_project(token: str, state: dict, projects: dict, project_name: str
             _log("Commit generation failed twice, skipping today", "error")
             return
 
+        _log(f"Pushing {commit_data['file_path']} to {project['name']}...")
         commit_file(token, project["name"], commit_data["file_path"], commit_data["content"], commit_data["commit_message"])
 
         if commit_data["file_path"] not in existing_files:
