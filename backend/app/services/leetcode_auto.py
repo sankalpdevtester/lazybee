@@ -2,7 +2,7 @@ import httpx
 import asyncio
 import random
 import os
-from app.services.gemini_service import _ask, MODEL_SMALL
+from app.services.gemini_service import generate_leetcode_solution
 
 LEETCODE_GQL = "https://leetcode.com/graphql"
 LEETCODE_SESSION = os.getenv("LEETCODE_SESSION", "")
@@ -98,22 +98,8 @@ async def get_badge_progress() -> dict:
     }
 
 def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
-    title = problem.get("title", "")
-    content = (problem.get("content", "") or "")[:600]
-    snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
-    prompt = f"""Write a {difficulty} LeetCode solution in {lang}.
-Problem: {title}
-Description: {content}
-Starting code: {snippet}
-
-Make it look like a student wrote it:
-- Simple variable names (i, j, n, res, temp, curr)
-- 1-2 casual comments like # handle edge case
-- Slightly verbose, not clever one-liners
-- Must be CORRECT and pass all test cases
-- No markdown, return raw code only"""
-    return _ask(prompt, model=MODEL_SMALL)
+    return generate_leetcode_solution(problem, difficulty, lang)
 
 async def submit_solution(slug: str, question_id: str, code: str, lang: str = "python3") -> dict:
     async with httpx.AsyncClient(timeout=30) as client:

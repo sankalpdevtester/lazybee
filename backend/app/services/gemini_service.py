@@ -5,27 +5,22 @@ import time
 from groq import Groq
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-MODEL_LARGE = "llama-3.3-70b-versatile"
-MODEL_SMALL = "llama-3.1-8b-instant"
+MODEL = "llama-3.3-70b-versatile"
 
-def _ask(prompt: str, model: str = None) -> str:
-    m = model or MODEL_LARGE
+def _ask(prompt: str) -> str:
     for attempt in range(3):
         try:
             response = client.chat.completions.create(
-                model=m,
+                model=MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
+                temperature=0.2,
                 max_tokens=4096,
             )
             return response.choices[0].message.content
         except Exception as e:
             err = str(e)
             if "429" in err or "rate_limit" in err.lower():
-                if m == MODEL_LARGE:
-                    m = MODEL_SMALL
-                    continue
-                wait = 30 * (attempt + 1)
+                wait = 60 * (attempt + 1)
                 time.sleep(wait)
             else:
                 raise
@@ -167,6 +162,36 @@ CODE_START
 CODE_END"""
 
     return _parse_file_format(_ask(prompt))
+
+def generate_leetcode_solution(problem: dict, difficulty: str, lang: str = "python3") -> str:
+    title = problem.get("title", "")
+    content = (problem.get("content", "") or "")[:800]
+    snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
+
+    if difficulty == "Hard":
+        style = """- Use the correct optimal algorithm
+- Add 1-2 minor style imperfections (slightly verbose variable names like 'current_node' instead of 'node')
+- Add 1 casual comment like # handle edge case
+- Must still be CORRECT"""
+    else:
+        style = """- Use a clean correct solution
+- Simple variable names (i, j, n, res)
+- Must be 100% CORRECT and pass ALL test cases on first try
+- No clever tricks, straightforward implementation"""
+
+    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}.
+
+Problem: {title}
+Description: {content}
+Starting code template:
+{snippet}
+
+Requirements:
+{style}
+- Return ONLY the raw code, no markdown, no explanation
+- The solution must be complete and correct"""
+
+    return _ask(prompt)
 
 def chat_with_context(message: str, context: str) -> str:
     system = "You are the LazyBee AI assistant. LazyBee automates GitHub commits, builds CS projects daily, and solves LeetCode problems. Be concise and direct."
