@@ -13,10 +13,10 @@ from app.scheduler.jobs import start_scheduler
 from app.storage import read_json, write_json, DATA_DIR
 
 DEFAULT_ACCOUNTS = [
+    {"username": "sankalpdevtester", "token": os.getenv("SANKALPDEVTESTER_TOKEN", ""), "active": True, "display_only": False},
     {"username": "Shivaani-spec", "token": os.getenv("SHIVAANI_TOKEN", ""), "active": True, "display_only": True},
     {"username": "PirateKingLuffie", "token": os.getenv("PIRATE_TOKEN", ""), "active": True, "display_only": True},
     {"username": "liveinsaaninsaan", "token": os.getenv("LIVE_TOKEN", ""), "active": True, "display_only": True},
-    {"username": "sankalpdevtester", "token": os.getenv("SANKALPDEVTESTER_TOKEN", ""), "active": True, "display_only": False},
 ]
 
 def _seed_accounts():
@@ -26,9 +26,12 @@ def _seed_accounts():
         if acc["username"] not in existing:
             existing[acc["username"]] = acc
         else:
-            if not acc["display_only"] and acc["token"]:
+            # Always update token from env in case it changed
+            if acc["token"]:
                 existing[acc["username"]]["token"] = acc["token"]
-    write_json("accounts", {"accounts": list(existing.values())})
+    # Preserve order from DEFAULT_ACCOUNTS
+    ordered = [existing[a["username"]] for a in DEFAULT_ACCOUNTS if a["username"] in existing]
+    write_json("accounts", {"accounts": ordered})
 
 def _start_self_ping():
     def ping():

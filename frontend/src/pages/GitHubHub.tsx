@@ -145,7 +145,9 @@ function RepoCard({ repo }: { repo: any }) {
 function AccountCard({ username, data }: { username: string; data: any }) {
   const [repoFilter, setRepoFilter] = useState('')
   const [page, setPage] = useState(0)
+  const [showGraph, setShowGraph] = useState(true)
   const PER_PAGE = 6
+  const isAutomation = username === 'sankalpdevtester'
 
   if (data?.error) return (
     <div className="bg-bee-card border border-red-900/40 rounded-2xl p-5">
@@ -154,13 +156,13 @@ function AccountCard({ username, data }: { username: string; data: any }) {
     </div>
   )
 
-  const { stats, repos } = data
+  const { stats, graph, repos } = data
   const filtered = (repos || []).filter((r: any) => r.name?.toLowerCase().includes(repoFilter.toLowerCase()))
   const totalPages = Math.ceil(filtered.length / PER_PAGE)
   const pageRepos = filtered.slice(page * PER_PAGE, (page + 1) * PER_PAGE)
 
   return (
-    <div className="bg-bee-card border border-bee-border rounded-2xl overflow-hidden">
+    <div className={`bg-bee-card border rounded-2xl overflow-hidden ${isAutomation ? 'border-bee-yellow/40' : 'border-bee-border'}`}>
       {/* Profile header */}
       <div className="p-5 border-b border-bee-border">
         <div className="flex items-start gap-4">
@@ -169,7 +171,10 @@ function AccountCard({ username, data }: { username: string; data: any }) {
             <div className="flex items-start justify-between gap-2 flex-wrap">
               <div>
                 {stats.name && <h2 className="text-base font-bold text-white">{stats.name}</h2>}
-                <p className="text-gray-400 text-sm">@{stats.username}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-gray-400 text-sm">@{stats.username}</p>
+                  {isAutomation && <span className="text-[10px] bg-bee-yellow/20 text-bee-yellow px-2 py-0.5 rounded-full font-medium">🤖 Automation</span>}
+                </div>
               </div>
               <a href={stats.profile_url} target="_blank" rel="noreferrer"
                 className="flex items-center gap-1.5 border border-bee-border text-xs text-gray-300 hover:border-gray-400 px-3 py-1.5 rounded-lg transition-colors shrink-0">
@@ -217,6 +222,27 @@ function AccountCard({ username, data }: { username: string; data: any }) {
           )}
         </div>
       </div>
+
+      {/* Individual contribution graph */}
+      {graph && (
+        <div className="px-5 py-4 border-b border-bee-border">
+          <button onClick={() => setShowGraph(g => !g)} className="flex items-center gap-2 text-xs text-gray-400 hover:text-white mb-3 transition-colors">
+            <span className="font-semibold text-gray-300">Contribution Graph</span>
+            <span className="text-bee-yellow">{graph.total_contributions?.toLocaleString() || 0} contributions</span>
+            <span className="ml-auto">{showGraph ? '▲' : '▼'}</span>
+          </button>
+          {showGraph && (
+            graph.error
+              ? <p className="text-xs text-gray-500">Graph unavailable - token needed for private contributions</p>
+              : <ContributionGraph
+                  grid={graph.grid || {}}
+                  total={graph.total_contributions || 0}
+                  currentStreak={graph.current_streak || 0}
+                  longestStreak={graph.longest_streak || 0}
+                />
+          )}
+        </div>
+      )}
 
       {/* Repos */}
       <div className="p-4 space-y-3">
