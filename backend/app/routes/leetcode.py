@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from app.routes.deps import require_auth
 from app.services.leetcode_service import fetch_daily_problem, fetch_problem_list, fetch_user_profile
+from app.services.leetcode_auto import get_badges, get_badge_progress
 
 router = APIRouter()
 
@@ -15,3 +16,9 @@ async def problem_list():
 @router.get("/profile", dependencies=[Depends(require_auth)])
 async def user_profile():
     return await fetch_user_profile()
+
+@router.get("/badges", dependencies=[Depends(require_auth)])
+async def badges():
+    b = await get_badges()
+    p = await get_badge_progress()
+    return {**b, **p}

@@ -1,23 +1,26 @@
 import { useEffect, useState } from 'react'
-import { ExternalLink, RefreshCw, Trophy, Flame, Calendar } from 'lucide-react'
+import { ExternalLink, RefreshCw, Trophy, Flame, Calendar, Award, Lock } from 'lucide-react'
 import api from '../lib/api'
 
 export default function Leetcode() {
   const [profile, setProfile] = useState<any>(null)
   const [daily, setDaily] = useState<any>(null)
   const [problems, setProblems] = useState<any[]>([])
+  const [badges, setBadges] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   const load = async () => {
     setLoading(true)
-    const [p, d, pr] = await Promise.all([
+    const [p, d, pr, b] = await Promise.all([
       api.get('/leetcode/profile'),
       api.get('/leetcode/daily'),
       api.get('/leetcode/problems'),
+      api.get('/leetcode/badges'),
     ])
     setProfile(p.data)
     setDaily(d.data)
     setProblems(pr.data)
+    setBadges(b.data)
     setLoading(false)
   }
 
@@ -93,6 +96,40 @@ export default function Leetcode() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Badges */}
+      {badges && (
+        <div className="bg-bee-card border border-bee-border rounded-xl p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+            <Award size={15} className="text-bee-yellow" /> Badges
+          </h2>
+          {badges.earned?.length > 0 ? (
+            <div className="flex flex-wrap gap-3">
+              {badges.earned.map((b: any) => (
+                <div key={b.id} className="flex flex-col items-center gap-1 bg-bee-dark rounded-xl p-3 w-20">
+                  <img src={`https://leetcode.com${b.icon}`} alt={b.name} className="w-10 h-10" />
+                  <p className="text-[10px] text-gray-400 text-center leading-tight">{b.displayName || b.name}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-sm">No badges earned yet.</p>
+          )}
+          {badges.upcoming?.length > 0 && (
+            <div>
+              <p className="text-xs text-gray-500 mb-2 flex items-center gap-1"><Lock size={11} /> Upcoming badges</p>
+              <div className="flex flex-wrap gap-3">
+                {badges.upcoming.map((b: any, i: number) => (
+                  <div key={i} className="flex flex-col items-center gap-1 bg-bee-dark rounded-xl p-3 w-20 opacity-50">
+                    <img src={`https://leetcode.com${b.icon}`} alt={b.name} className="w-10 h-10 grayscale" />
+                    <p className="text-[10px] text-gray-500 text-center leading-tight">{b.name}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -11,13 +11,34 @@ scheduler = BackgroundScheduler()
 AUTOMATION_ACCOUNT = "sankalpdevtester"
 BLOCKED_REPOS = {"lazybee"}  # never touch these
 
-# 20+ languages to cycle through
+# 30+ languages and stacks to cycle through
 LANGUAGES = [
+    # Core languages
     "Python", "TypeScript", "JavaScript", "Java", "Go",
     "Rust", "C++", "C#", "PHP", "Ruby",
     "Swift", "Kotlin", "Scala", "R", "Dart",
     "Elixir", "Haskell", "Lua", "Perl", "Shell",
-    "C", "Zig"
+    "C", "Zig",
+    # Full stacks
+    "MERN Stack (MongoDB + Express + React + Node.js)",
+    "MEAN Stack (MongoDB + Express + Angular + Node.js)",
+    "PERN Stack (PostgreSQL + Express + React + Node.js)",
+    "Next.js + Prisma + PostgreSQL",
+    "Django + React + PostgreSQL",
+    "FastAPI + React + SQLite",
+    "Laravel + Vue.js",
+    "Ruby on Rails + React",
+    # Specialized
+    "Web3 + Solidity + Ethers.js + React",
+    "Three.js + WebGL + React (3D)",
+    "Babylon.js + TypeScript (3D Game)",
+    "React Native + Expo (Mobile)",
+    "Flutter + Dart (Mobile)",
+    "Electron + React (Desktop)",
+    "GraphQL + Apollo + React",
+    "tRPC + Next.js + Prisma",
+    "Svelte + SvelteKit",
+    "Remix + React",
 ]
 
 def _log(message: str, level: str = "info"):
@@ -254,13 +275,14 @@ def start_scheduler():
     hour2 = (hour + 12) % 24
     scheduler.add_job(run_12h_automation, CronTrigger(hour=hour2, minute=minute), id="12h_automation", replace_existing=True)
 
-    # LeetCode daily at different random time
-    lc_hour = random.randint(10, 22)
-    lc_minute = random.randint(0, 59)
-    scheduler.add_job(_run_leetcode, CronTrigger(hour=lc_hour, minute=lc_minute), id="daily_leetcode", replace_existing=True)
+    # LeetCode 4x daily at random times spread across the day
+    lc_hours = sorted(random.sample(range(6, 24), 4))
+    for i, lc_hour in enumerate(lc_hours):
+        lc_minute = random.randint(0, 59)
+        scheduler.add_job(_run_leetcode, CronTrigger(hour=lc_hour, minute=lc_minute), id=f"leetcode_{i}", replace_existing=True)
 
     scheduler.start()
-    _log(f"Scheduler started - GitHub at {hour:02d}:{minute:02d} UTC, 12h at {hour2:02d}:{minute:02d} UTC, LeetCode at {lc_hour:02d}:{lc_minute:02d} UTC")
+    _log(f"Scheduler started - GitHub at {hour:02d}:{minute:02d} UTC, 12h at {hour2:02d}:{minute:02d} UTC, LeetCode at {lc_hours} UTC")
 
 def _run_leetcode():
     import asyncio
