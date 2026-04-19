@@ -15,6 +15,7 @@ def _ask(prompt: str) -> str:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=4096,
+                timeout=30,
             )
             return response.choices[0].message.content
         except Exception as e:
