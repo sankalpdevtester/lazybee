@@ -268,24 +268,29 @@ def _revive_old_projects(token: str, state: dict, projects: dict):
         except Exception as e:
             _log(f"Revival failed for {project['name']}: {e}", "error")
 
+def _ist_to_utc(ist_hour: int) -> int:
+    """IST = UTC+5:30, so UTC = IST - 5 (ignoring 30min, handled by minute offset)"""
+    return (ist_hour - 5) % 24
+
 def start_scheduler():
-    # Daily GitHub automation at random time 9AM-11PM UTC
-    hour = random.randint(9, 23)
+    # GitHub main commit - random time 10AM-9PM IST
+    ist_hour = random.randint(10, 21)
     minute = random.randint(0, 59)
+    hour = _ist_to_utc(ist_hour)
     scheduler.add_job(run_daily_automation, CronTrigger(hour=hour, minute=minute), id="daily_automation", replace_existing=True)
 
-    # 12-hour commits - runs twice a day
+    # 12h commit - 12 hours later
     hour2 = (hour + 12) % 24
     scheduler.add_job(run_12h_automation, CronTrigger(hour=hour2, minute=minute), id="12h_automation", replace_existing=True)
 
-    # LeetCode 4x daily at random times spread across the day
-    lc_hours = sorted(random.sample(range(6, 24), 4))
-    for i, lc_hour in enumerate(lc_hours):
+    # LeetCode 4x daily spread across 9AM-11PM IST
+    ist_lc_hours = sorted(random.sample(range(9, 23), 4))
+    for i, ist_lc in enumerate(ist_lc_hours):
         lc_minute = random.randint(0, 59)
-        scheduler.add_job(_run_leetcode, CronTrigger(hour=lc_hour, minute=lc_minute), id=f"leetcode_{i}", replace_existing=True)
+        scheduler.add_job(_run_leetcode, CronTrigger(hour=_ist_to_utc(ist_lc), minute=lc_minute), id=f"leetcode_{i}", replace_existing=True)
 
     scheduler.start()
-    _log(f"Scheduler started - GitHub at {hour:02d}:{minute:02d} UTC, 12h at {hour2:02d}:{minute:02d} UTC, LeetCode at {lc_hours} UTC")
+    _log(f"Scheduler started (IST) - GitHub at {ist_hour:02d}:00, 12h at {(ist_hour+12)%24:02d}:00, LeetCode at {ist_lc_hours}")
 
 def _run_leetcode():
     import asyncio
