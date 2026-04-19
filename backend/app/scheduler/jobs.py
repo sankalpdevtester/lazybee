@@ -213,7 +213,10 @@ def _continue_project(token: str, state: dict, projects: dict, project_name: str
 
         commit_data = generate_daily_commit(project, day, existing_files)
         if not commit_data:
-            _log("Gemini returned empty commit", "error")
+            _log("Groq returned empty commit - retrying", "error")
+            commit_data = generate_daily_commit(project, day, existing_files)
+        if not commit_data:
+            _log("Commit generation failed twice, skipping today", "error")
             return
 
         commit_file(token, project["name"], commit_data["file_path"], commit_data["content"], commit_data["commit_message"])
@@ -225,7 +228,7 @@ def _continue_project(token: str, state: dict, projects: dict, project_name: str
         projects[project_name]["files"] = existing_files
         state["projects"] = projects
         _save_state(state)
-        _log(f"Day {day} commit to {project['title']}: {commit_data['commit_message']}")
+        _log(f"✅ Day {day} commit to {project['title']}: {commit_data['commit_message']}")
     except Exception as e:
         _log(f"Failed daily commit: {e}", "error")
 

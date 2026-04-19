@@ -37,14 +37,18 @@ async def get_problems(difficulty: str = "EASY", limit: int = 50) -> list:
     return data.get("data", {}).get("problemsetQuestionList", {}).get("questions", [])
 
 async def get_already_solved() -> set:
+    """Returns all problems attempted (AC or not) to avoid repeating."""
     query = """
     query($username: String!) {
+      recentSubmissionList(username: $username, limit: 100) { titleSlug }
       recentAcSubmissionList(username: $username, limit: 100) { titleSlug }
     }
     """
     data = await _gql(query, {"username": LEETCODE_USERNAME})
-    subs = data.get("data", {}).get("recentAcSubmissionList", []) or []
-    return {s["titleSlug"] for s in subs}
+    recent = data.get("data", {}).get("recentSubmissionList", []) or []
+    ac = data.get("data", {}).get("recentAcSubmissionList", []) or []
+    # Combine both - skip anything attempted recently whether passed or failed
+    return {s["titleSlug"] for s in recent + ac}
 
 async def get_problem_detail(slug: str) -> dict:
     query = """
