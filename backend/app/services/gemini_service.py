@@ -1,39 +1,63 @@
 import os
 import json
 import re
+import time
 from groq import Groq
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-MODEL = "llama-3.3-70b-versatile"
+MODEL_LARGE = "llama-3.3-70b-versatile"
+MODEL_SMALL = "llama-3.1-8b-instant"
 
-def _ask(prompt: str) -> str:
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7,
-        max_tokens=4096,
-    )
-    return response.choices[0].message.content
+def _ask(prompt: str, model: str = None) -> str:
+    m = model or MODEL_LARGE
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=m,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=4096,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            err = str(e)
+            if "429" in err or "rate_limit" in err.lower():
+                if m == MODEL_LARGE:
+                    m = MODEL_SMALL
+                    continue
+                wait = 30 * (attempt + 1)
+                time.sleep(wait)
+            else:
+                raise
+    return ""
 
 def _parse_json(text: str) -> dict:
-    # Try direct parse first
     try:
         return json.loads(text.strip())
     except Exception:
         pass
-    # Try extracting JSON block
     match = re.search(r'\{.*\}', text, re.DOTALL)
     if not match:
         return {}
     try:
         return json.loads(match.group())
     except Exception:
-        # Try cleaning common issues
-        cleaned = match.group().replace('\n', '\\n').replace('\t', '\\t')
-        try:
-            return json.loads(cleaned)
-        except Exception:
-            return {}
+        return {}
+
+def _parse_file_format(text: str) -> dict:
+    try:
+        file_path = re.search(r'FILE_PATH:\s*(.+)', text)
+        commit_msg = re.search(r'COMMIT_MESSAGE:\s*(.+)', text)
+        code_match = re.search(r'CODE_START\n(.*?)\nCODE_END', text, re.DOTALL)
+        if file_path and commit_msg and code_match:
+            return {
+                "file_path": file_path.group(1).strip(),
+                "content": code_match.group(1).strip(),
+                "commit_message": commit_msg.group(1).strip(),
+            }
+    except Exception:
+        pass
+    return {}
 
 def generate_project_idea(existing_projects: list[str], language: str = "TypeScript") -> dict:
     avoid = ", ".join(existing_projects) if existing_projects else "none"
@@ -93,36 +117,21 @@ Pages: {', '.join(pages[:3]) if pages else 'multiple pages'}
 
 Write ONE real complete working code file for today's goal.
 Rules:
-- Real working code, no placeholders, no TODOs, no "improve error handling" filler
+- Real working code, no placeholders, no TODOs
 - At least 60-100 lines of actual implementation code
-- Day 1-2: setup files (package.json, tsconfig, tailwind config, env files)
+- Day 1-2: setup files (package.json, tsconfig, tailwind config)
 - Day 3-6: core models, database schema, API routes with real logic
 - Day 7+: actual UI pages and components with real functionality
-- The commit message must describe the SPECIFIC feature being added, not generic phrases
-- Bad commit messages: "improve error handling", "update code", "fix bugs"
-- Good commit messages: "feat: add user authentication with JWT", "feat: implement dashboard analytics chart", "feat: create REST API for project management"
+- Commit message must be SPECIFIC: "feat: add JWT authentication middleware" not "feat: update code"
 
 Respond in this EXACT format:
 FILE_PATH: src/example.py
-COMMIT_MESSAGE: feat: specific description of what this file does
+COMMIT_MESSAGE: feat: specific description
 CODE_START
-(put the full working code here, minimum 60 lines)
+(full working code here, minimum 60 lines)
 CODE_END"""
 
-    text = _ask(prompt)
-    try:
-        file_path = re.search(r'FILE_PATH:\s*(.+)', text)
-        commit_msg = re.search(r'COMMIT_MESSAGE:\s*(.+)', text)
-        code_match = re.search(r'CODE_START\n(.*?)\nCODE_END', text, re.DOTALL)
-        if file_path and commit_msg and code_match:
-            return {
-                "file_path": file_path.group(1).strip(),
-                "content": code_match.group(1).strip(),
-                "commit_message": commit_msg.group(1).strip(),
-            }
-    except Exception:
-        pass
-    return {}
+    return _parse_file_format(_ask(prompt))
 
 def generate_readme(project: dict) -> str:
     prompt = f"""Write a professional README.md for this project:
@@ -148,31 +157,17 @@ Write a small but REAL maintenance update. Pick one specific thing:
 - Add a new API endpoint
 - Add a new UI component
 - Fix a specific edge case with real code
-DO NOT just write generic error handling or vague improvements.
-The commit message must be specific: e.g. "fix: handle null user in auth middleware" not "fix: improve error handling"
+DO NOT write generic error handling. Commit message must be specific.
 
 Respond in this EXACT format:
 FILE_PATH: src/utils/helpers.py
 COMMIT_MESSAGE: fix: specific description
 CODE_START
-(put the full code here)
+(full code here)
 CODE_END"""
 
-    text = _ask(prompt)
-    try:
-        file_path = re.search(r'FILE_PATH:\s*(.+)', text)
-        commit_msg = re.search(r'COMMIT_MESSAGE:\s*(.+)', text)
-        code_match = re.search(r'CODE_START\n(.*?)\nCODE_END', text, re.DOTALL)
-        if file_path and commit_msg and code_match:
-            return {
-                "file_path": file_path.group(1).strip(),
-                "content": code_match.group(1).strip(),
-                "commit_message": commit_msg.group(1).strip(),
-            }
-    except Exception:
-        pass
-    return {}
+    return _parse_file_format(_ask(prompt))
 
 def chat_with_context(message: str, context: str) -> str:
-    system = "You are the LazyBee AI assistant. LazyBee automates GitHub commits across multiple accounts, builds real CS projects daily, and solves LeetCode problems automatically. Be concise and direct."
+    system = "You are the LazyBee AI assistant. LazyBee automates GitHub commits, builds CS projects daily, and solves LeetCode problems. Be concise and direct."
     return _ask(f"{system}\n\n{context}\n\nUser: {message}")
