@@ -157,7 +157,9 @@ async def run_daily_leetcode(num_problems: int = 5):
         solved = await get_already_solved()
         log(f"Solved recently: {len(solved)} | Streak: {progress.get('streak', 0)} days")
 
-        # Build priority queue - daily challenge first, then unsolved
+        unsolved = [p for p in all_problems if p["titleSlug"] not in solved]
+
+        # Build priority queue - daily challenge first
         queue = []
         if daily_slug:
             daily_detail = await get_problem_detail(daily_slug)
@@ -165,16 +167,35 @@ async def run_daily_leetcode(num_problems: int = 5):
                 queue.append(daily_detail)
                 log(f"Prioritizing daily: {daily_detail.get('title')}")
 
-        # Add unsolved problems shuffled
-        unsolved = [p for p in all_problems if p["titleSlug"] not in solved and p["titleSlug"] != daily_slug]
-        random.shuffle(unsolved)
-
-        # Weight: 40% easy, 40% medium, 20% hard
+        # Build pool with guaranteed difficulty distribution
+        # Always include: 2 easy, 2 medium, 1 hard minimum
         easy_pool = [p for p in unsolved if p["difficulty"] == "Easy"]
         medium_pool = [p for p in unsolved if p["difficulty"] == "Medium"]
         hard_pool = [p for p in unsolved if p["difficulty"] == "Hard"]
-        pool = easy_pool + medium_pool + hard_pool
-        queue += pool
+
+        # If pools are empty fall back to all problems of that difficulty
+        if not hard_pool:
+            hard_pool = [p for p in all_problems if p["difficulty"] == "Hard" and p["titleSlug"] != daily_slug]
+        if not medium_pool:
+            medium_pool = [p for p in all_problems if p["difficulty"] == "Medium" and p["titleSlug"] != daily_slug]
+        if not easy_pool:
+            easy_pool = [p for p in all_problems if p["difficulty"] == "Easy" and p["titleSlug"] != daily_slug]
+
+        slots = num_problems - len(to_solve)
+        # Guaranteed: 2 easy, 2 medium, 1 hard (adjust if slots < 5)
+        n_hard = max(1, slots // 5)
+        n_medium = max(1, slots // 3)
+        n_easy = slots - n_hard - n_medium
+
+        picks = []
+        if hard_pool:
+            picks += random.sample(hard_pool, min(n_hard, len(hard_pool)))
+        if medium_pool:
+            picks += random.sample(medium_pool, min(n_medium, len(medium_pool)))
+        if easy_pool:
+            picks += random.sample(easy_pool, min(n_easy, len(easy_pool)))
+        random.shuffle(picks)
+        queue += picks
 
         # If not enough unsolved, add already solved ones as fallback
         if len(queue) < num_problems * 3:
