@@ -88,12 +88,25 @@ Description: {project['description']}
 Stack: {stack}
 Today goal (day {day}/28): {step}
 Files already created: {', '.join(existing_files) if existing_files else 'none yet'}
+Features to implement: {', '.join(features[:5]) if features else 'core features'}
+Pages: {', '.join(pages[:3]) if pages else 'multiple pages'}
 
-Write ONE real working code file. Respond in this EXACT format with no deviation:
+Write ONE real complete working code file for today's goal.
+Rules:
+- Real working code, no placeholders, no TODOs, no "improve error handling" filler
+- At least 60-100 lines of actual implementation code
+- Day 1-2: setup files (package.json, tsconfig, tailwind config, env files)
+- Day 3-6: core models, database schema, API routes with real logic
+- Day 7+: actual UI pages and components with real functionality
+- The commit message must describe the SPECIFIC feature being added, not generic phrases
+- Bad commit messages: "improve error handling", "update code", "fix bugs"
+- Good commit messages: "feat: add user authentication with JWT", "feat: implement dashboard analytics chart", "feat: create REST API for project management"
+
+Respond in this EXACT format:
 FILE_PATH: src/example.py
-COMMIT_MESSAGE: feat: add example feature
+COMMIT_MESSAGE: feat: specific description of what this file does
 CODE_START
-(put the full code here)
+(put the full working code here, minimum 60 lines)
 CODE_END"""
 
     text = _ask(prompt)
@@ -129,11 +142,18 @@ Description: {project['description']}
 Stack: {project.get('stack', project.get('language', ''))}
 Existing files: {', '.join(project.get('files', [])[:10])}
 
-Write a small real maintenance update: fix a bug, add a docstring, improve error handling, or add a small helper.
+Write a small but REAL maintenance update. Pick one specific thing:
+- Add a new utility function with actual logic
+- Add input validation with specific rules
+- Add a new API endpoint
+- Add a new UI component
+- Fix a specific edge case with real code
+DO NOT just write generic error handling or vague improvements.
+The commit message must be specific: e.g. "fix: handle null user in auth middleware" not "fix: improve error handling"
 
 Respond in this EXACT format:
 FILE_PATH: src/utils/helpers.py
-COMMIT_MESSAGE: fix: improve error handling
+COMMIT_MESSAGE: fix: specific description
 CODE_START
 (put the full code here)
 CODE_END"""

@@ -181,7 +181,7 @@ async def run_daily_leetcode(num_problems: int = 5):
         if not easy_pool:
             easy_pool = [p for p in all_problems if p["difficulty"] == "Easy" and p["titleSlug"] != daily_slug]
 
-        slots = num_problems - len(to_solve)
+        slots = num_problems - len(queue)
         # Guaranteed: 2 easy, 2 medium, 1 hard (adjust if slots < 5)
         n_hard = max(1, slots // 5)
         n_medium = max(1, slots // 3)
