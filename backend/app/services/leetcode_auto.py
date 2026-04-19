@@ -141,50 +141,57 @@ async def run_daily_leetcode(num_problems: int = 5):
         append_log(datetime.utcnow().isoformat(), "leetcode", msg, level)
 
     try:
-        # Always solve the daily challenge first (helps with badges)
         progress = await get_badge_progress()
         daily = progress.get("daily_challenge", {})
         daily_slug = daily.get("question", {}).get("titleSlug") if daily else None
 
-        # Get mix of easy, medium, hard
-        easy = await get_problems("EASY", 30)
-        medium = await get_problems("MEDIUM", 30)
-        hard = await get_problems("HARD", 20)
+        easy = await get_problems("EASY", 50)
+        medium = await get_problems("MEDIUM", 50)
+        hard = await get_problems("HARD", 30)
         all_problems = easy + medium + hard
 
         solved = await get_already_solved()
         log(f"Solved recently: {len(solved)} | Streak: {progress.get('streak', 0)} days")
 
-        unsolved = [p for p in all_problems if p["titleSlug"] not in solved]
-        if not unsolved:
-            unsolved = all_problems
-
-        # Prioritize daily challenge for badge progress
-        to_solve = []
-        if daily_slug and daily_slug not in solved:
+        # Build priority queue - daily challenge first, then unsolved
+        queue = []
+        if daily_slug:
             daily_detail = await get_problem_detail(daily_slug)
-            if daily_detail:
-                to_solve.append(daily_detail)
-                log(f"Prioritizing daily challenge: {daily.get('question', {}).get('title')}")
+            if daily_detail and daily_detail.get("questionId"):
+                queue.append(daily_detail)
+                log(f"Prioritizing daily: {daily_detail.get('title')}")
 
-        # Fill remaining slots with mix of difficulties
-        remaining = [p for p in unsolved if p["titleSlug"] != daily_slug]
+        # Add unsolved problems shuffled
+        unsolved = [p for p in all_problems if p["titleSlug"] not in solved and p["titleSlug"] != daily_slug]
+        random.shuffle(unsolved)
+
         # Weight: 40% easy, 40% medium, 20% hard
-        easy_pool = [p for p in remaining if p["difficulty"] == "Easy"]
-        medium_pool = [p for p in remaining if p["difficulty"] == "Medium"]
-        hard_pool = [p for p in remaining if p["difficulty"] == "Hard"]
+        easy_pool = [p for p in unsolved if p["difficulty"] == "Easy"]
+        medium_pool = [p for p in unsolved if p["difficulty"] == "Medium"]
+        hard_pool = [p for p in unsolved if p["difficulty"] == "Hard"]
+        pool = easy_pool + medium_pool + hard_pool
+        queue += pool
 
-        slots = num_problems - len(to_solve)
-        picks = (
-            random.sample(easy_pool, min(int(slots * 0.4) + 1, len(easy_pool))) +
-            random.sample(medium_pool, min(int(slots * 0.4) + 1, len(medium_pool))) +
-            random.sample(hard_pool, min(int(slots * 0.2) + 1, len(hard_pool)))
-        )
-        to_solve += picks[:slots]
+        # If not enough unsolved, add already solved ones as fallback
+        if len(queue) < num_problems * 3:
+            fallback = [p for p in all_problems if p["titleSlug"] != daily_slug]
+            random.shuffle(fallback)
+            queue += fallback
 
-        for i, problem in enumerate(to_solve[:num_problems]):
+        submitted = 0
+        attempted = 0
+        max_attempts = num_problems * 4  # try up to 4x more problems to get 5 successes
+
+        for problem in queue:
+            if submitted >= num_problems:
+                break
+            if attempted >= max_attempts:
+                log(f"Reached max attempts ({max_attempts}), submitted {submitted}/{num_problems}")
+                break
+
+            attempted += 1
             try:
-                slug = problem.get("titleSlug") or problem.get("titleSlug")
+                slug = problem.get("titleSlug")
                 if not slug:
                     continue
 
@@ -192,29 +199,41 @@ async def run_daily_leetcode(num_problems: int = 5):
                 if not detail or not detail.get("questionId"):
                     continue
 
-                code = generate_human_like_solution(detail, "python3")
-                if not code or len(code) < 10:
-                    log(f"Empty code for {slug}", "error")
-                    continue
-
-                if i > 0:
+                if submitted > 0:
                     delay = random.randint(90, 360)
-                    log(f"Waiting {delay}s...")
+                    log(f"Waiting {delay}s before next submission...")
                     await asyncio.sleep(delay)
 
-                result = await submit_solution(slug, code, "python3")
-                submission_id = result.get("submission_id", "unknown")
-                log(f"Submitted: {detail.get('title')} ({detail.get('difficulty')}) - id: {submission_id}")
+                # Try up to 2 times per problem with different code
+                success = False
+                for attempt in range(2):
+                    code = generate_human_like_solution(detail, "python3")
+                    if not code or len(code) < 10:
+                        continue
+                    result = await submit_solution(slug, code, "python3")
+                    submission_id = result.get("submission_id")
+                    if submission_id:
+                        log(f"Submitted ({submitted+1}/{num_problems}): {detail.get('title')} ({detail.get('difficulty')}) - id: {submission_id}")
+                        submitted += 1
+                        success = True
+                        break
+                    else:
+                        log(f"Retry {attempt+1} for {detail.get('title')}: {result}")
+                        await asyncio.sleep(10)
+
+                if not success:
+                    log(f"Skipping {detail.get('title')} after 2 failed attempts", "error")
 
             except Exception as e:
-                log(f"Failed {problem.get('title', '')}: {e}", "error")
+                log(f"Error on {problem.get('title', problem.get('titleSlug', ''))}: {e}", "error")
                 continue
 
-        # Log badge status after solving
+        log(f"LeetCode session done: {submitted}/{num_problems} submitted")
+
         badges = await get_badges()
         earned = badges.get("earned", [])
         upcoming = badges.get("upcoming", [])
-        log(f"Badges earned: {len(earned)} | Upcoming: {[b['name'] for b in upcoming]}")
+        log(f"Badges: {len(earned)} earned | Upcoming: {[b['name'] for b in upcoming]}")
 
     except Exception as e:
         log(f"LeetCode run failed: {e}", "error")
