@@ -133,6 +133,25 @@ async def submit_solution(slug: str, code: str, lang: str = "python3") -> dict:
         )
         return r.json()
 
+async def check_submission_result(submission_id: int) -> str:
+    """Poll until we get the actual result."""
+    async with httpx.AsyncClient(timeout=60) as client:
+        for _ in range(20):
+            await asyncio.sleep(3)
+            r = await client.get(
+                f"https://leetcode.com/submissions/detail/{submission_id}/check/",
+                headers=_headers(),
+            )
+            data = r.json()
+            state = data.get("state", "")
+            if state == "SUCCESS":
+                return data.get("status_msg", "Unknown")
+            elif state in ("PENDING", "STARTED"):
+                continue
+            else:
+                return state or "Unknown"
+    return "Timeout"
+
 async def run_daily_leetcode(num_problems: int = 5):
     from app.storage import append_log
     from datetime import datetime
@@ -204,25 +223,30 @@ async def run_daily_leetcode(num_problems: int = 5):
                     log(f"Waiting {delay}s before next submission...")
                     await asyncio.sleep(delay)
 
-                # Try up to 2 times per problem with different code
+                # Try up to 3 times per problem
                 success = False
-                for attempt in range(2):
+                for attempt in range(3):
                     code = generate_human_like_solution(detail, "python3")
                     if not code or len(code) < 10:
                         continue
                     result = await submit_solution(slug, code, "python3")
                     submission_id = result.get("submission_id")
-                    if submission_id:
-                        log(f"Submitted ({submitted+1}/{num_problems}): {detail.get('title')} ({detail.get('difficulty')}) - id: {submission_id}")
+                    if not submission_id:
+                        log(f"No submission_id for {detail.get('title')}: {str(result)[:100]}", "error")
+                        break
+                    status = await check_submission_result(submission_id)
+                    log(f"({submitted+1}/{num_problems}) {detail.get('title')} ({detail.get('difficulty')}) → {status}")
+                    if status == "Accepted":
                         submitted += 1
                         success = True
                         break
                     else:
-                        log(f"Retry {attempt+1} for {detail.get('title')}: {result}")
-                        await asyncio.sleep(10)
+                        if attempt < 2:
+                            log(f"Got {status}, retrying with new code...")
+                            await asyncio.sleep(5)
 
                 if not success:
-                    log(f"Skipping {detail.get('title')} after 2 failed attempts", "error")
+                    log(f"Skipping {detail.get('title')} after 3 attempts", "error")
 
             except Exception as e:
                 log(f"Error on {problem.get('title', problem.get('titleSlug', ''))}: {e}", "error")

@@ -180,7 +180,7 @@ def _create_new_project(token: str, state: dict, projects: dict, current_slot: i
             return
 
         readme = generate_readme(project)
-        repo_url = create_repo_and_init(token, project["name"], project["description"], readme)
+        repo_url = create_repo_and_init(token, project["name"], project["description"][:350], readme)
 
         for folder in project.get("folder_structure", []):
             if folder.endswith("/"):
