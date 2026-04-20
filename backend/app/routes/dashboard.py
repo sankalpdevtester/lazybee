@@ -32,6 +32,6 @@ def run_leetcode():
     import threading, asyncio
     from app.services.leetcode_auto import run_daily_leetcode
     def _run():
-        asyncio.run(run_daily_leetcode(5))
+        asyncio.run(run_daily_leetcode(8))
     threading.Thread(target=_run, daemon=True).start()
-    return {"message": "LeetCode automation triggered. Solving 5 problems with delays. Check logs."}
+    return {"message": "LeetCode automation triggered. Solving 8 problems. Check logs."}

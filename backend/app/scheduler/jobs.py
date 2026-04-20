@@ -297,4 +297,4 @@ def start_scheduler():
 def _run_leetcode():
     import asyncio
     from app.services.leetcode_auto import run_daily_leetcode
-    asyncio.run(run_daily_leetcode(5))
+    asyncio.run(run_daily_leetcode(8))
