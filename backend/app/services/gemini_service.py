@@ -2,30 +2,45 @@ import os
 import json
 import re
 import time
+import httpx
 from groq import Groq
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 MODEL = "llama-3.3-70b-versatile"
 
+def _get_client(key: str) -> Groq:
+    return Groq(api_key=key, http_client=httpx.Client(timeout=60.0))
+
 def _ask(prompt: str) -> str:
-    for attempt in range(3):
-        try:
-            response = client.chat.completions.create(
-                model=MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=4096,
-                timeout=60,
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            err = str(e)
-            if "429" in err or "rate_limit" in err.lower():
-                wait = 60 * (attempt + 1)
-                time.sleep(wait)
-            else:
-                raise
-    return ""
+    keys = [k for k in [
+        os.getenv("GROQ_API_KEY", ""),
+        os.getenv("GROQ_API_KEY_2", ""),
+        os.getenv("GROQ_API_KEY_3", ""),
+    ] if k]
+    if not keys:
+        raise ValueError("No GROQ_API_KEY set")
+    last_error = None
+    for key in keys:
+        client = _get_client(key)
+        for attempt in range(2):
+            try:
+                response = client.chat.completions.create(
+                    model=MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                    max_tokens=4096,
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                last_error = e
+                err = str(e)
+                if "429" in err or "rate_limit" in err.lower():
+                    if attempt == 0:
+                        time.sleep(30)
+                    else:
+                        break
+                else:
+                    raise
+    raise RuntimeError(f"All Groq keys failed. Last error: {last_error}")
 
 def _parse_json(text: str) -> dict:
     try:
@@ -51,7 +66,6 @@ def _parse_file_format(text: str) -> dict:
                 "content": code_match.group(1).strip(),
                 "commit_message": commit_msg.group(1).strip(),
             }
-        # Fallback: if model ignored format, try to extract any code block
         code_block = re.search(r'```(?:\w+)?\n(.*?)\n```', text, re.DOTALL)
         if file_path and commit_msg and code_block:
             return {
@@ -176,7 +190,6 @@ def generate_leetcode_solution(problem: dict, difficulty: str, lang: str = "pyth
     title = problem.get("title", "")
     content = (problem.get("content", "") or "")[:400]
     snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
-
     prompt = f"""Solve this LeetCode problem correctly in {lang}. Return ONLY the code, no explanation.
 
 Problem: {title}
