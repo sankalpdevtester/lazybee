@@ -169,16 +169,15 @@ async def run_daily_leetcode(num_problems: int = 5):
         daily_slug = daily.get("question", {}).get("titleSlug") if daily else None
         today = datetime.utcnow().strftime("%Y-%m-%d")
 
-        # Use LC API as source of truth for solved problems
-        lc_ac = await get_already_solved()
-        
-        # Redis only used for daily date tracking
+        # Use LC API + Redis as combined source of truth
+        lc_ac = await get_already_solved()  # recent from LC API
         lc_state = read_json("leetcode_state")
         last_daily_date = lc_state.get("last_daily_date", "")
+        redis_solved = set(lc_state.get("solved", []))
         
-        # All solved = LC API (most accurate)
-        all_solved = lc_ac
-        log(f"Total solved: {len(all_solved)} | Streak: {progress.get('streak', 0)} days")
+        # Merge both - Redis has permanent history, LC API has recent
+        all_solved = lc_ac | redis_solved
+        log(f"Total solved: {len(all_solved)} (LC: {len(lc_ac)}, saved: {len(redis_solved)}) | Streak: {progress.get('streak', 0)} days")
 
         easy = await get_problems("EASY", 100)
         medium = await get_problems("MEDIUM", 100)
@@ -262,6 +261,7 @@ async def run_daily_leetcode(num_problems: int = 5):
                     if status == "Accepted":
                         submitted += 1
                         success = True
+                        redis_solved.add(slug)  # permanently save to Redis
                         if slug == daily_slug:
                             lc_state["last_daily_date"] = today
                         break
@@ -277,7 +277,8 @@ async def run_daily_leetcode(num_problems: int = 5):
                 log(f"Error on {problem.get('title', slug)}: {e}", "error")
                 continue
 
-        # Only save daily date tracking
+        # Save solved history + daily date to Redis
+        lc_state["solved"] = list(redis_solved)
         write_json("leetcode_state", lc_state)
 
         log(f"✅ Session done: {submitted}/{num_problems} accepted")

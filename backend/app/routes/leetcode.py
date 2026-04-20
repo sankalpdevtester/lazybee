@@ -22,3 +22,16 @@ async def badges():
     b = await get_badges()
     p = await get_badge_progress()
     return {**b, **p}
+
+@router.post("/seed-solved", dependencies=[Depends(require_auth)])
+async def seed_solved():
+    """Manually seed all solved problems from LC API into Redis."""
+    from app.storage import read_json, write_json
+    from app.services.leetcode_auto import get_already_solved
+    lc_ac = await get_already_solved()
+    state = read_json("leetcode_state")
+    existing = set(state.get("solved", []))
+    merged = existing | lc_ac
+    state["solved"] = list(merged)
+    write_json("leetcode_state", state)
+    return {"message": f"Seeded {len(merged)} solved problems into Redis ({len(lc_ac)} from LC API, {len(existing)} already saved)"}

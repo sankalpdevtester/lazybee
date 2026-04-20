@@ -24,6 +24,11 @@ export default function Leetcode() {
     setLoading(false)
   }
 
+  const seedSolved = async () => {
+    const { data } = await api.post('/leetcode/seed-solved')
+    alert(data.message)
+  }
+
   useEffect(() => { load() }, [])
 
   const diffColor = (d: string) =>
@@ -37,9 +42,14 @@ export default function Leetcode() {
     <div className="space-y-6 max-w-3xl">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-white">LeetCode</h1>
-        <button onClick={load} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
-          <RefreshCw size={14} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={seedSolved} className="text-xs text-gray-400 hover:text-white border border-bee-border px-3 py-1.5 rounded-lg transition-colors">
+            Sync Solved
+          </button>
+          <button onClick={load} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
+            <RefreshCw size={14} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Profile stats */}
