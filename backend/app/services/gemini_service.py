@@ -24,26 +24,22 @@ def _ask(prompt: str, model: str = None) -> str:
     last_error = None
     for key in keys:
         client = _get_client(key)
-        for attempt in range(2):
-            try:
-                response = client.chat.completions.create(
-                    model=use_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.2,
-                    max_tokens=4096,
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                last_error = e
-                err = str(e)
-                if "429" in err or "rate_limit" in err.lower():
-                    if attempt == 0:
-                        time.sleep(30)
-                    else:
-                        break
-                else:
-                    raise
-    raise RuntimeError(f"All Groq keys failed. Last error: {last_error}")
+        try:
+            response = client.chat.completions.create(
+                model=use_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=4096,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            last_error = e
+            err = str(e)
+            if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
+                continue  # immediately try next key
+            else:
+                raise
+    raise RuntimeError(f"All Groq keys exhausted. Last error: {last_error}")
 
 def _parse_json(text: str) -> dict:
     try:
