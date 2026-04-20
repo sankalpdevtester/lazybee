@@ -10,7 +10,8 @@ MODEL = "llama-3.3-70b-versatile"
 def _get_client(key: str) -> Groq:
     return Groq(api_key=key, http_client=httpx.Client(timeout=60.0))
 
-def _ask(prompt: str) -> str:
+def _ask(prompt: str, model: str = None) -> str:
+    use_model = model or MODEL
     keys = [k for k in [
         os.getenv("GROQ_API_KEY", ""),
         os.getenv("GROQ_API_KEY_2", ""),
@@ -26,7 +27,7 @@ def _ask(prompt: str) -> str:
         for attempt in range(2):
             try:
                 response = client.chat.completions.create(
-                    model=MODEL,
+                    model=use_model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.2,
                     max_tokens=4096,

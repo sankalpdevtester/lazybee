@@ -107,20 +107,24 @@ def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
     content = (problem.get("content", "") or "")[:600]
     snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
-    prompt = f"""Write a {difficulty} LeetCode solution in {lang}.
-Problem: {title}
-Description: {content}
-Starting code: {snippet}
 
-Make it look like a student wrote it:
-- Simple variable names (i, j, n, res, temp, curr)
-- 1-2 casual comments like # handle edge case or # check boundary  
-- Slightly verbose, not clever one-liners
-- One small redundant check is fine
-- For Hard problems: use correct algorithm but with slightly suboptimal variable naming
-- Must be CORRECT and pass all test cases
-- No markdown, return raw code only"""
-    return _ask(prompt)
+    # Use reasoning model for Hard problems
+    model_override = "deepseek-r1-distill-llama-70b" if difficulty == "Hard" else None
+
+    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}. Return ONLY the raw code, no explanation, no markdown.
+
+Problem: {title}
+{content}
+
+Code template:
+{snippet}
+
+Requirements:
+- Must be 100% correct and pass all test cases
+- Handle all edge cases
+- Use optimal algorithm
+- Return raw code only"""
+    return _ask(prompt, model=model_override)
 
 async def submit_solution(slug: str, code: str, lang: str = "python3") -> dict:
     detail = await get_problem_detail(slug)
