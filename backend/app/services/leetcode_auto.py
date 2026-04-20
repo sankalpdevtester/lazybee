@@ -108,23 +108,21 @@ def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
     snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
 
-    # Use reasoning model for Hard problems
-    model_override = "deepseek-r1-distill-llama-70b" if difficulty == "Hard" else None
-
-    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}. Return ONLY the raw code, no explanation, no markdown.
+    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}.
 
 Problem: {title}
 {content}
 
-Code template:
+Code template (fill this in exactly, do not add class definitions for TreeNode/ListNode/etc as they are already defined):
 {snippet}
 
-Requirements:
-- Must be 100% correct and pass all test cases
-- Handle all edge cases
-- Use optimal algorithm
-- Return raw code only"""
-    return _ask(prompt, model=model_override)
+Rules:
+- Return ONLY the code that fills in the template above
+- Do NOT redefine TreeNode, ListNode, or any other provided classes
+- Do NOT add import statements unless absolutely necessary
+- Must be 100% correct and handle all edge cases
+- No markdown, no explanation, raw code only"""
+    return _ask(prompt)
 
 async def submit_solution(slug: str, code: str, lang: str = "python3") -> dict:
     detail = await get_problem_detail(slug)
