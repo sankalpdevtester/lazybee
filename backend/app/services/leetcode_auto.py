@@ -1,6 +1,7 @@
 import httpx
 import asyncio
 import random
+import re
 import os
 from app.services.gemini_service import _ask
 
@@ -107,22 +108,21 @@ def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
     content = (problem.get("content", "") or "")[:600]
     snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
-
-    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}.
-
+    prompt = f"""Write a {difficulty} LeetCode solution in {lang}.
 Problem: {title}
-{content}
+Description: {content}
+Starting code: {snippet}
 
-Code template (fill this in exactly, do not add class definitions for TreeNode/ListNode/etc as they are already defined):
-{snippet}
-
-Rules:
-- Return ONLY the code that fills in the template above
-- Do NOT redefine TreeNode, ListNode, or any other provided classes
-- Do NOT add import statements unless absolutely necessary
-- Must be 100% correct and handle all edge cases
-- No markdown, no explanation, raw code only"""
-    return _ask(prompt)
+Make it look like a student wrote it:
+- Simple variable names (i, j, n, res, temp, curr)
+- 1-2 casual comments like # handle edge case
+- Must be CORRECT and pass all test cases
+- No markdown, no backticks, return raw code only"""
+    code = _ask(prompt)
+    # Strip markdown backticks if model added them
+    code = re.sub(r'^```[\w]*\n', '', code.strip())
+    code = re.sub(r'\n```$', '', code.strip())
+    return code.strip()
 
 async def submit_solution(slug: str, code: str, lang: str = "python3") -> dict:
     detail = await get_problem_detail(slug)
