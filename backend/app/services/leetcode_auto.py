@@ -38,12 +38,14 @@ async def get_problems(difficulty: str = "EASY", limit: int = 50) -> list:
     return data.get("data", {}).get("problemsetQuestionList", {}).get("questions", [])
 
 async def get_already_solved() -> set:
+    """Get ALL accepted submissions using pagination."""
     query = """
-    query($username: String!) {
-      recentAcSubmissionList(username: $username, limit: 100) { titleSlug }
+    query($username: String!, $limit: Int, $offset: Int) {
+      recentAcSubmissionList(username: $username, limit: $limit) { titleSlug }
     }
     """
-    data = await _gql(query, {"username": LEETCODE_USERNAME})
+    # Fetch up to 1000 to cover all solved problems
+    data = await _gql(query, {"username": LEETCODE_USERNAME, "limit": 1000})
     subs = data.get("data", {}).get("recentAcSubmissionList", []) or []
     return {s["titleSlug"] for s in subs}
 
@@ -167,16 +169,16 @@ async def run_daily_leetcode(num_problems: int = 5):
         daily_slug = daily.get("question", {}).get("titleSlug") if daily else None
         today = datetime.utcnow().strftime("%Y-%m-%d")
 
-        # Load persistent state from Redis
-        lc_state = read_json("leetcode_state")
-        our_solved = set(lc_state.get("solved", []))
-        last_daily_date = lc_state.get("last_daily_date", "")
-
-        # Merge with LeetCode's own AC list
+        # Use LC API as source of truth for solved problems
         lc_ac = await get_already_solved()
-        all_solved = our_solved | lc_ac
-
-        log(f"Total solved tracked: {len(all_solved)} | Streak: {progress.get('streak', 0)} days")
+        
+        # Redis only used for daily date tracking
+        lc_state = read_json("leetcode_state")
+        last_daily_date = lc_state.get("last_daily_date", "")
+        
+        # All solved = LC API (most accurate)
+        all_solved = lc_ac
+        log(f"Total solved: {len(all_solved)} | Streak: {progress.get('streak', 0)} days")
 
         easy = await get_problems("EASY", 100)
         medium = await get_problems("MEDIUM", 100)
@@ -224,7 +226,7 @@ async def run_daily_leetcode(num_problems: int = 5):
         log(f"Queue: {len(queue)} problems to solve")
 
         submitted = 0
-        session_tried = set()
+        session_tried = set()  # track within this session to avoid duplicates
 
         for problem in queue:
             if submitted >= num_problems:
@@ -260,7 +262,6 @@ async def run_daily_leetcode(num_problems: int = 5):
                     if status == "Accepted":
                         submitted += 1
                         success = True
-                        our_solved.add(slug)
                         if slug == daily_slug:
                             lc_state["last_daily_date"] = today
                         break
@@ -276,7 +277,7 @@ async def run_daily_leetcode(num_problems: int = 5):
                 log(f"Error on {problem.get('title', slug)}: {e}", "error")
                 continue
 
-        lc_state["solved"] = list(our_solved)
+        # Only save daily date tracking
         write_json("leetcode_state", lc_state)
 
         log(f"✅ Session done: {submitted}/{num_problems} accepted")
