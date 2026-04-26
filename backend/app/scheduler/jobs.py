@@ -10,6 +10,7 @@ scheduler = BackgroundScheduler()
 
 AUTOMATION_ACCOUNT = "sankalpdevtester"
 BLOCKED_REPOS = {"lazybee"}  # never touch these
+PROJECT_DAYS = 7  # days before starting a new project
 
 # 30+ languages and stacks to cycle through
 LANGUAGES = [
@@ -141,7 +142,17 @@ def run_daily_automation():
             state[slot_key] = None
             _save_state(state)
             return
-        _continue_project(token, state, projects, slot_project_name)
+        # Check if project exceeded 7 days - start new one
+        days_on_project = _days_since(project.get("started_at", ""))
+        if days_on_project >= PROJECT_DAYS:
+            projects[slot_project_name]["completed"] = True
+            state[slot_key] = None
+            state["projects"] = projects
+            _save_state(state)
+            _log(f"Project {project['title']} completed after {days_on_project} days, starting new one")
+            _create_new_project(token, state, projects, current_slot, slot_key)
+        else:
+            _continue_project(token, state, projects, slot_project_name)
 
 def run_12h_automation():
     """Runs every 12 hours - adds a commit to one active project."""
