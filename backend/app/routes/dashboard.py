@@ -22,9 +22,23 @@ async def dashboard():
 
 @router.post("/run-now", dependencies=[Depends(require_auth)])
 def run_now():
-    from app.scheduler.jobs import run_daily_automation
+    from app.scheduler.jobs import _get_token, _get_state, _save_state, _create_new_project, _continue_project, _next_language, _projects_this_month, BLOCKED_REPOS
     import threading
-    threading.Thread(target=run_daily_automation, daemon=True).start()
+    def _run():
+        token = _get_token()
+        if not token:
+            return
+        state = _get_state()
+        projects = state.get("projects", {})
+        # Force slot 0 - bypass day of week check
+        slot_key = "slot_0"
+        slot_project_name = state.get(slot_key)
+        project = projects.get(slot_project_name) if slot_project_name else None
+        if not project or slot_project_name in BLOCKED_REPOS:
+            _create_new_project(token, state, projects, 0, slot_key)
+        else:
+            _continue_project(token, state, projects, slot_project_name)
+    threading.Thread(target=_run, daemon=True).start()
     return {"message": "GitHub automation triggered. Check logs for progress."}
 
 @router.post("/run-leetcode", dependencies=[Depends(require_auth)])
