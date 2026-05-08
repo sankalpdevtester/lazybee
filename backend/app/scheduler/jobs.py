@@ -286,24 +286,16 @@ def _ist_to_utc(ist_hour: int) -> int:
     return (ist_hour - 5) % 24
 
 def start_scheduler():
-    # GitHub main commit - random time 10AM-9PM IST
-    ist_hour = random.randint(10, 21)
-    minute = random.randint(0, 59)
-    hour = _ist_to_utc(ist_hour)
-    scheduler.add_job(run_daily_automation, CronTrigger(hour=hour, minute=minute), id="daily_automation", replace_existing=True)
-
-    # 12h commit - 12 hours later
-    hour2 = (hour + 12) % 24
-    scheduler.add_job(run_12h_automation, CronTrigger(hour=hour2, minute=minute), id="12h_automation", replace_existing=True)
-
-    # LeetCode 4x daily spread across 9AM-11PM IST
-    ist_lc_hours = sorted(random.sample(range(9, 23), 4))
-    for i, ist_lc in enumerate(ist_lc_hours):
-        lc_minute = random.randint(0, 59)
-        scheduler.add_job(_run_leetcode, CronTrigger(hour=_ist_to_utc(ist_lc), minute=lc_minute), id=f"leetcode_{i}", replace_existing=True)
-
+    # Fixed IST times - never change on redeploy
+    # GitHub main commit - 11AM IST daily
+    scheduler.add_job(run_daily_automation, CronTrigger(hour=_ist_to_utc(11), minute=30), id="daily_automation", replace_existing=True)
+    # 12h commit - 11PM IST daily  
+    scheduler.add_job(run_12h_automation, CronTrigger(hour=_ist_to_utc(23), minute=30), id="12h_automation", replace_existing=True)
+    # LeetCode 4x daily at 9AM, 2PM, 7PM, 11PM IST
+    for i, (ist_h, ist_m) in enumerate([(9,15),(14,30),(19,0),(23,0)]):
+        scheduler.add_job(_run_leetcode, CronTrigger(hour=_ist_to_utc(ist_h), minute=ist_m), id=f"leetcode_{i}", replace_existing=True)
     scheduler.start()
-    _log(f"Scheduler started (IST) - GitHub at {ist_hour:02d}:00, 12h at {(ist_hour+12)%24:02d}:00, LeetCode at {ist_lc_hours}")
+    _log("Scheduler started - GitHub 11:30AM IST, 12h 11:30PM IST, LeetCode 9:15AM/2:30PM/7:00PM/11:00PM IST")
 
 def _run_leetcode():
     import asyncio
