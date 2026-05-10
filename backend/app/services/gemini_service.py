@@ -122,30 +122,38 @@ def generate_daily_commit(project: dict, day: int, existing_files: list[str]) ->
     step = roadmap[min(day // 2, len(roadmap) - 1)] if roadmap else "continue development"
     stack = project.get("stack", project.get("language", ""))
     features = project.get("features", [])
-    pages = project.get("pages", [])
+    title = project.get("title", "")
+    description = project.get("description", "")
 
-    prompt = f"""You are a developer building: {project['title']}
-Description: {project['description']}
+    prompt = f"""You are an expert {stack} developer working on a real open source project.
+
+Project: {title}
+Description: {description}
 Stack: {stack}
-Today goal (day {day}/28): {step}
-Files already created: {', '.join(existing_files) if existing_files else 'none yet'}
-Features to implement: {', '.join(features[:5]) if features else 'core features'}
-Pages: {', '.join(pages[:3]) if pages else 'multiple pages'}
+Day {day} goal: {step}
+Files already in repo: {', '.join(existing_files) if existing_files else 'only README.md'}
 
-Write ONE real complete working code file for today's goal.
-Rules:
-- Real working code, no placeholders, no TODOs
-- At least 60-100 lines of actual implementation code
-- Day 1-2: setup files (package.json, tsconfig, tailwind config)
-- Day 3-6: core models, database schema, API routes with real logic
-- Day 7+: actual UI pages and components with real functionality
-- Commit message must be SPECIFIC: "feat: add JWT authentication middleware" not "feat: update code"
+Write ONE complete, production-quality code file that makes real progress on this project.
+
+Strict rules:
+- This must be REAL working code that actually implements the described functionality
+- No placeholder comments like "# TODO" or "# implement this"
+- No fake data or mock implementations - real algorithms and logic
+- Minimum 80 lines of actual implementation
+- For {title}:
+  - If it's a language/compiler: write real lexer tokens, parser rules, AST nodes, or interpreter logic
+  - If it's a database: write real storage engine, WAL, or consensus algorithm code
+  - If it's a blockchain: write real cryptographic hashing, block validation, or transaction logic
+  - If it's a collab editor: write real CRDT operations, WebSocket handlers, or OT algorithms
+  - If it's an AI tool: write real API integrations, analysis logic, or ML pipeline code
+- Use proper data structures, error handling, and type annotations
+- Commit message must describe the EXACT feature implemented
 
 Respond in this EXACT format:
-FILE_PATH: src/example.py
-COMMIT_MESSAGE: feat: specific description
+FILE_PATH: src/lexer/tokenizer.py
+COMMIT_MESSAGE: feat: implement tokenizer with full token type support
 CODE_START
-(full working code here, minimum 60 lines)
+(complete working code here)
 CODE_END"""
 
     return _parse_file_format(_ask(prompt))
@@ -163,24 +171,36 @@ Return ONLY the raw markdown content, nothing else."""
     return _ask(prompt)
 
 def generate_maintenance_commit(project: dict) -> dict:
-    prompt = f"""You are maintaining: {project['title']}
-Description: {project['description']}
-Stack: {project.get('stack', project.get('language', ''))}
-Existing files: {', '.join(project.get('files', [])[:10])}
+    stack = project.get('stack', project.get('language', ''))
+    title = project.get('title', '')
+    description = project.get('description', '')
+    existing = project.get('files', [])[:10]
 
-Write a small but REAL maintenance update. Pick one specific thing:
-- Add a new utility function with actual logic
-- Add input validation with specific rules
-- Add a new API endpoint
-- Add a new UI component
-- Fix a specific edge case with real code
-DO NOT write generic error handling. Commit message must be specific.
+    prompt = f"""You are an expert {stack} developer adding a new feature to a real open source project.
+
+Project: {title}
+Description: {description}
+Stack: {stack}
+Existing files: {', '.join(existing)}
+
+Add a NEW real feature or module. Not a fix - actual new functionality specific to this project:
+- Language/compiler project: add a new built-in function, operator, or optimization pass
+- Database project: add a new query type, index structure, or replication feature
+- Blockchain project: add a new transaction type, merkle tree, or P2P networking
+- Collab editor: add syntax highlighting, user presence, or version history
+- AI tool: add a new analysis type, integration, or reporting feature
+- Other: add the most impactful missing feature
+
+Rules:
+- Real working code, minimum 60 lines
+- Must actually implement the feature, no placeholders
+- Specific commit message describing exactly what was added
 
 Respond in this EXACT format:
-FILE_PATH: src/utils/helpers.py
-COMMIT_MESSAGE: fix: specific description
+FILE_PATH: src/feature/new_module.py
+COMMIT_MESSAGE: feat: add specific feature name
 CODE_START
-(full code here)
+(complete working code)
 CODE_END"""
 
     return _parse_file_format(_ask(prompt))
