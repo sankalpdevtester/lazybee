@@ -108,27 +108,43 @@ async def get_badge_progress() -> dict:
 def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
     title = problem.get("title", "")
     content = (problem.get("content", "") or "")[:600]
-    snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
-    prompt = f"""Write a {difficulty} LeetCode solution in {lang}.
-Problem: {title}
-Description: {content}
-Starting code: {snippet}
+    snippets = problem.get("codeSnippets") or []
 
-Make it look like a student wrote it:
-- Simple variable names (i, j, n, res, temp, curr)
-- 1-2 casual comments like # handle edge case
-- Must be CORRECT and pass all test cases
-- No markdown, no backticks, return raw code only"""
+    # Auto-detect correct language from available snippets
+    # SQL problems only have mysql/mssql snippets, Shell problems only have bash
+    available_langs = [s["langSlug"] for s in snippets]
+    if "mysql" in available_langs and "python3" not in available_langs:
+        lang = "mysql"
+    elif "bash" in available_langs and "python3" not in available_langs:
+        lang = "bash"
+    else:
+        lang = "python3"
+
+    snippet = next((s["code"] for s in snippets if s["langSlug"] == lang), "")
+
+    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}.
+Problem: {title}
+{content}
+
+Code template:
+{snippet}
+
+Rules:
+- Return ONLY the raw code, no markdown, no backticks, no explanation
+- Must be 100% correct and pass all test cases
+- Do NOT redefine TreeNode, ListNode or any provided classes"""
+
     code = _ask(prompt)
-    # Strip markdown backticks if model added them
+    # Strip markdown if model added it
     code = re.sub(r'^```[\w]*\n', '', code.strip())
     code = re.sub(r'\n```$', '', code.strip())
-    return code.strip()
+    return code.strip(), lang
 
-async def submit_solution(slug: str, code: str, lang: str = "python3") -> dict:
-    detail = await get_problem_detail(slug)
-    question_id = detail.get("questionId")
+async def submit_solution(slug: str, code: str, lang: str = "python3", question_id: str = None) -> dict:
+    if not question_id:
+        detail = await get_problem_detail(slug)
+        question_id = detail.get("questionId")
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
             f"https://leetcode.com/problems/{slug}/submit/",
@@ -248,10 +264,10 @@ async def run_daily_leetcode(num_problems: int = 5):
 
                 success = False
                 for attempt in range(3):
-                    code = generate_human_like_solution(detail, "python3")
+                    code, detected_lang = generate_human_like_solution(detail)
                     if not code or len(code) < 10:
                         continue
-                    result = await submit_solution(slug, code, "python3")
+                    result = await submit_solution(slug, code, detected_lang, question_id=detail.get("questionId"))
                     submission_id = result.get("submission_id")
                     if not submission_id:
                         log(f"No submission_id for {detail.get('title')}: {str(result)[:100]}", "error")
