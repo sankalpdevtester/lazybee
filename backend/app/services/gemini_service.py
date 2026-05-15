@@ -60,9 +60,13 @@ def _parse_file_format(text: str) -> dict:
         commit_msg = re.search(r'COMMIT_MESSAGE:\s*(.+)', text)
         code_match = re.search(r'CODE_START\s*\n(.*?)\nCODE_END', text, re.DOTALL)
         if file_path and commit_msg and code_match:
+            content = code_match.group(1).strip()
+            # Strip markdown backticks
+            content = re.sub(r'^```[\w]*\n', '', content)
+            content = re.sub(r'\n```$', '', content).strip()
             return {
                 "file_path": file_path.group(1).strip(),
-                "content": code_match.group(1).strip(),
+                "content": content,
                 "commit_message": commit_msg.group(1).strip(),
             }
         code_block = re.search(r'```(?:\w+)?\n(.*?)\n```', text, re.DOTALL)

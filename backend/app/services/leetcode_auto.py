@@ -24,28 +24,24 @@ async def _gql(query: str, variables: dict = {}) -> dict:
         r = await client.post(LEETCODE_GQL, json={"query": query, "variables": variables}, headers=_headers())
         return r.json()
 
-async def get_problems(difficulty: str = "EASY", limit: int = 50) -> list:
+async def get_problems(difficulty: str = "EASY", limit: int = 100) -> list:
     query = """
     query($limit: Int, $filters: QuestionListFilterInput) {
       problemsetQuestionList: questionList(
         categorySlug: "" limit: $limit skip: 0 filters: $filters
-      ) {
-        questions: data { titleSlug title difficulty }
-      }
+      ) { questions: data { titleSlug title difficulty } }
     }
     """
     data = await _gql(query, {"limit": limit, "filters": {"difficulty": difficulty}})
     return data.get("data", {}).get("problemsetQuestionList", {}).get("questions", [])
 
 async def get_already_solved() -> set:
-    """Get ALL accepted submissions using pagination."""
     query = """
-    query($username: String!, $limit: Int, $offset: Int) {
-      recentAcSubmissionList(username: $username, limit: $limit) { titleSlug }
+    query($username: String!) {
+      recentAcSubmissionList(username: $username, limit: 1000) { titleSlug }
     }
     """
-    # Fetch up to 1000 to cover all solved problems
-    data = await _gql(query, {"username": LEETCODE_USERNAME, "limit": 1000})
+    data = await _gql(query, {"username": LEETCODE_USERNAME})
     subs = data.get("data", {}).get("recentAcSubmissionList", []) or []
     return {s["titleSlug"] for s in subs}
 
@@ -72,19 +68,13 @@ async def get_badges() -> dict:
     """
     data = await _gql(query, {"username": LEETCODE_USERNAME})
     user = data.get("data", {}).get("matchedUser", {})
-    return {
-        "earned": user.get("badges", []),
-        "upcoming": user.get("upcomingBadges", []),
-    }
+    return {"earned": user.get("badges", []), "upcoming": user.get("upcomingBadges", [])}
 
 async def get_badge_progress() -> dict:
-    """Check what problems to solve to earn upcoming badges."""
     query = """
     query($username: String!) {
       matchedUser(username: $username) {
-        submitStats {
-          acSubmissionNum { difficulty count }
-        }
+        submitStats { acSubmissionNum { difficulty count } }
         userCalendar { streak totalActiveDays }
       }
       activeDailyCodingChallengeQuestion {
@@ -105,14 +95,13 @@ async def get_badge_progress() -> dict:
         "daily_challenge": daily,
     }
 
-def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
+def generate_human_like_solution(problem: dict) -> tuple:
     title = problem.get("title", "")
     content = (problem.get("content", "") or "")[:600]
     difficulty = problem.get("difficulty", "Easy")
     snippets = problem.get("codeSnippets") or []
 
-    # Auto-detect correct language from available snippets
-    # SQL problems only have mysql/mssql snippets, Shell problems only have bash
+    # Auto-detect language - SQL/Shell problems don't have python3
     available_langs = [s["langSlug"] for s in snippets]
     if "mysql" in available_langs and "python3" not in available_langs:
         lang = "mysql"
@@ -136,15 +125,11 @@ Rules:
 - Do NOT redefine TreeNode, ListNode or any provided classes"""
 
     code = _ask(prompt)
-    # Strip markdown if model added it
     code = re.sub(r'^```[\w]*\n', '', code.strip())
     code = re.sub(r'\n```$', '', code.strip())
     return code.strip(), lang
 
-async def submit_solution(slug: str, code: str, lang: str = "python3", question_id: str = None) -> dict:
-    if not question_id:
-        detail = await get_problem_detail(slug)
-        question_id = detail.get("questionId")
+async def submit_solution(slug: str, question_id: str, code: str, lang: str = "python3") -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
             f"https://leetcode.com/problems/{slug}/submit/",
@@ -154,7 +139,6 @@ async def submit_solution(slug: str, code: str, lang: str = "python3", question_
         return r.json()
 
 async def check_submission_result(submission_id: int) -> str:
-    """Poll until we get the actual result."""
     async with httpx.AsyncClient(timeout=60) as client:
         for _ in range(20):
             await asyncio.sleep(3)
@@ -172,7 +156,7 @@ async def check_submission_result(submission_id: int) -> str:
                 return state or "Unknown"
     return "Timeout"
 
-async def run_daily_leetcode(num_problems: int = 5):
+async def run_daily_leetcode(num_problems: int = 8):
     from app.storage import append_log, read_json, write_json
     from datetime import datetime
 
@@ -185,63 +169,63 @@ async def run_daily_leetcode(num_problems: int = 5):
         daily_slug = daily.get("question", {}).get("titleSlug") if daily else None
         today = datetime.utcnow().strftime("%Y-%m-%d")
 
-        # Use LC API + Redis as combined source of truth
-        lc_ac = await get_already_solved()  # recent from LC API
         lc_state = read_json("leetcode_state")
         last_daily_date = lc_state.get("last_daily_date", "")
         redis_solved = set(lc_state.get("solved", []))
-        
-        # Merge both - Redis has permanent history, LC API has recent
+        lc_ac = await get_already_solved()
         all_solved = lc_ac | redis_solved
-        log(f"Total solved: {len(all_solved)} (LC: {len(lc_ac)}, saved: {len(redis_solved)}) | Streak: {progress.get('streak', 0)} days")
 
+        log(f"Solved: {len(all_solved)} | Streak: {progress.get('streak', 0)} days")
+
+        # Fetch problems
         easy = await get_problems("EASY", 100)
         medium = await get_problems("MEDIUM", 100)
         hard = await get_problems("HARD", 50)
         all_problems = easy + medium + hard
 
-        # Build queue
+        # Build queue starting with daily
         queue = []
-
-        # Daily challenge - only if not done today
         if daily_slug and last_daily_date != today and daily_slug not in all_solved:
-            daily_detail = await get_problem_detail(daily_slug)
-            if daily_detail and daily_detail.get("questionId"):
-                queue.append(daily_detail)
-                log(f"Daily: {daily_detail.get('title')}")
-        elif daily_slug and (last_daily_date == today or daily_slug in all_solved):
-            log(f"Daily already done today, skipping")
+            d = await get_problem_detail(daily_slug)
+            if d and d.get("questionId"):
+                queue.append(d)
+                log(f"Daily: {d.get('title')}")
 
-        # Build unsolved pools
+        # Add unsolved problems
         unsolved = [p for p in all_problems if p["titleSlug"] not in all_solved and p["titleSlug"] != daily_slug]
-        easy_pool = [p for p in unsolved if p["difficulty"] == "Easy"]
-        medium_pool = [p for p in unsolved if p["difficulty"] == "Medium"]
-        hard_pool = [p for p in unsolved if p["difficulty"] == "Hard"]
-
-        log(f"Unsolved: {len(easy_pool)} easy, {len(medium_pool)} medium, {len(hard_pool)} hard")
+        easy_u = [p for p in unsolved if p["difficulty"] == "Easy"]
+        med_u = [p for p in unsolved if p["difficulty"] == "Medium"]
+        hard_u = [p for p in unsolved if p["difficulty"] == "Hard"]
 
         slots = num_problems - len(queue)
         n_hard = max(1, slots // 5)
-        n_medium = max(1, slots // 3)
-        n_easy = max(1, slots - n_hard - n_medium)
+        n_med = max(1, slots // 3)
+        n_easy = max(1, slots - n_hard - n_med)
 
-        if hard_pool:
-            queue += random.sample(hard_pool, min(n_hard, len(hard_pool)))
-        if medium_pool:
-            queue += random.sample(medium_pool, min(n_medium, len(medium_pool)))
-        if easy_pool:
-            queue += random.sample(easy_pool, min(n_easy, len(easy_pool)))
+        picks = []
+        if hard_u: picks += random.sample(hard_u, min(n_hard, len(hard_u)))
+        if med_u: picks += random.sample(med_u, min(n_med, len(med_u)))
+        if easy_u: picks += random.sample(easy_u, min(n_easy, len(easy_u)))
+        random.shuffle(picks)
+        queue += picks
 
-        # Only pad if we don't have enough - use unsolved only
-        if len(queue) < num_problems:
-            extra = [p for p in unsolved if p["titleSlug"] not in {q.get("titleSlug") for q in queue}]
-            random.shuffle(extra)
-            queue += extra[:num_problems - len(queue)]
+        # Pad with more unsolved
+        used = {q.get("titleSlug") for q in queue}
+        extra = [p for p in unsolved if p["titleSlug"] not in used]
+        random.shuffle(extra)
+        queue += extra[:num_problems * 3]
 
-        log(f"Queue: {len(queue)} problems to solve")
+        # Last resort - any problem
+        if len(queue) < num_problems * 2:
+            used = {q.get("titleSlug") for q in queue}
+            fallback = [p for p in all_problems if p["titleSlug"] not in used]
+            random.shuffle(fallback)
+            queue += fallback[:num_problems * 2]
+
+        log(f"Queue: {len(queue)} available, need {num_problems} accepted")
 
         submitted = 0
-        session_tried = set()  # track within this session to avoid duplicates
+        session_tried = set()
 
         for problem in queue:
             if submitted >= num_problems:
@@ -258,7 +242,7 @@ async def run_daily_leetcode(num_problems: int = 5):
                     continue
 
                 if submitted > 0:
-                    delay = random.randint(60, 240)
+                    delay = random.randint(60, 180)
                     log(f"Waiting {delay}s...")
                     await asyncio.sleep(delay)
 
@@ -266,38 +250,40 @@ async def run_daily_leetcode(num_problems: int = 5):
                 for attempt in range(3):
                     code, detected_lang = generate_human_like_solution(detail)
                     if not code or len(code) < 10:
+                        log(f"Empty code for {detail.get('title')}", "error")
                         continue
-                    result = await submit_solution(slug, code, detected_lang, question_id=detail.get("questionId"))
+
+                    result = await submit_solution(slug, detail["questionId"], code, detected_lang)
                     submission_id = result.get("submission_id")
                     if not submission_id:
                         log(f"No submission_id for {detail.get('title')}: {str(result)[:100]}", "error")
                         break
+
                     status = await check_submission_result(submission_id)
-                    log(f"({submitted+1}/{num_problems}) {detail.get('title')} ({detail.get('difficulty')}) → {status}")
+                    log(f"({submitted+1}/{num_problems}) {detail.get('title')} ({detail.get('difficulty')}) [{detected_lang}] -> {status}")
+
                     if status == "Accepted":
                         submitted += 1
                         success = True
-                        redis_solved.add(slug)  # permanently save to Redis
+                        redis_solved.add(slug)
                         if slug == daily_slug:
                             lc_state["last_daily_date"] = today
                         break
                     else:
                         if attempt < 2:
                             log(f"Got {status}, retrying...")
-                            await asyncio.sleep(5)
+                            await asyncio.sleep(3)
 
                 if not success:
-                    log(f"Could not solve {detail.get('title')} - skipping")
+                    log(f"Skipping {detail.get('title')} after 3 attempts")
 
             except Exception as e:
                 log(f"Error on {problem.get('title', slug)}: {e}", "error")
                 continue
 
-        # Save solved history + daily date to Redis
         lc_state["solved"] = list(redis_solved)
         write_json("leetcode_state", lc_state)
-
-        log(f"✅ Session done: {submitted}/{num_problems} accepted")
+        log(f"Session done: {submitted}/{num_problems} accepted")
         badges = await get_badges()
         log(f"Badges: {len(badges.get('earned', []))} earned | Upcoming: {[b['name'] for b in badges.get('upcoming', [])]}")
 
