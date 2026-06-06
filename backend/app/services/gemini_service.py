@@ -82,129 +82,227 @@ def _parse_file_format(text: str) -> dict:
 
 def generate_project_idea(existing_projects: list[str], language: str = "TypeScript") -> dict:
     avoid = ", ".join(existing_projects) if existing_projects else "none"
-    prompt = f"""You are a senior software engineer. Suggest ONE large comprehensive CS project for a developer portfolio.
+    prompt = f"""You are a senior software engineer. Suggest ONE real CS project for a developer portfolio.
 
 Requirements:
-- Must be a REAL impressive project: web app, SaaS, CLI tool, API, developer platform
-- Must have AT LEAST 50 distinct features across 10+ pages/routes
-- Production-quality with professional UI
-- Language/Stack: {language} - use the most appropriate framework
-- Completable incrementally over 28 days with daily commits
+- Must be a genuinely useful project someone would actually use or run
+- Realistic scope: completable and FULLY RUNNABLE in 7 days of commits
+- Language/Stack: {language} - use the single most standard framework for that stack
 - Avoid these existing projects: {avoid}
+- Pick projects where the core loop is simple: a CLI tool, a REST API, a small web app, a library
+- DO NOT pick compiler/database/blockchain/OS - those are too complex to be runnable in 7 days
+
+Good examples by stack:
+- Python: FastAPI CRUD app, CLI data tool, scraper with export, automation script suite
+- TypeScript/Node: Express REST API, CLI utility, React dashboard with real data
+- Go: HTTP server, CLI tool, file processor
+- Rust: CLI tool, file format parser
+- React: dashboard app, portfolio site, utility web app
 
 Respond ONLY in this exact JSON format, no extra text:
 {{
   "name": "repo-name-in-kebab-case",
   "title": "Human Readable Title",
-  "description": "Two sentence description",
+  "description": "One sentence description of what it does and who uses it.",
   "language": "{language}",
-  "stack": "specific framework and tools",
-  "folder_structure": ["src/", "src/components/", "src/pages/", "src/lib/", "docs/", "tests/"],
-  "features": ["feature 1", "feature 2", "feature 3"],
-  "pages": ["/home", "/dashboard", "/settings"],
+  "stack": "specific framework and tools e.g. FastAPI + SQLite + Python 3.11",
+  "run_command": "exact command to run the project e.g. uvicorn main:app or npm run dev or cargo run",
+  "install_command": "exact install command e.g. pip install -r requirements.txt or npm install",
+  "entry_point": "main entry file e.g. main.py or src/index.ts or cmd/main.go",
+  "scaffold_files": [
+    {{"path": "requirements.txt", "description": "dependencies"}},
+    {{"path": "main.py", "description": "entry point"}},
+    {{"path": ".env.example", "description": "env template"}}
+  ],
+  "features": ["feature 1", "feature 2", "feature 3", "feature 4", "feature 5"],
   "roadmap": [
-    "Day 1-2: Project setup, folder structure, README, core config",
-    "Day 3-4: Database models and core data layer",
-    "Day 5-6: Authentication and user management",
-    "Day 7-8: Core feature 1",
-    "Day 9-10: Core feature 2",
-    "Day 11-12: Core feature 3",
-    "Day 13-14: Secondary features batch 1",
-    "Day 15-16: Secondary features batch 2",
-    "Day 17-18: UI components and styling",
-    "Day 19-20: API integration and testing",
-    "Day 21-22: Performance and optimization",
-    "Day 23-24: Documentation and API docs",
-    "Day 25-26: Deployment config",
-    "Day 27-28: Final polish and README"
+    "Day 1: Project scaffold - entry point, config, dependencies, .env.example, basic hello world that runs",
+    "Day 2: Core data models and database/storage layer",
+    "Day 3: Core feature 1 - fully working end to end",
+    "Day 4: Core feature 2 - fully working end to end",
+    "Day 5: Core feature 3 + error handling",
+    "Day 6: Tests and documentation",
+    "Day 7: Final polish, deployment config, updated README with real usage examples"
   ]
 }}"""
     return _parse_json(_ask(prompt))
 
-def generate_daily_commit(project: dict, day: int, existing_files: list[str]) -> dict:
-    roadmap = project.get("roadmap", [])
-    step = roadmap[min(day // 2, len(roadmap) - 1)] if roadmap else "continue development"
+
+def generate_scaffold(project: dict) -> list[dict]:
+    """Generate ALL runnable scaffold files upfront on day 1 so the project works from the start."""
     stack = project.get("stack", project.get("language", ""))
-    features = project.get("features", [])
     title = project.get("title", "")
     description = project.get("description", "")
+    run_cmd = project.get("run_command", "")
+    install_cmd = project.get("install_command", "")
+    entry = project.get("entry_point", "main.py")
+    scaffold_files = project.get("scaffold_files", [])
+    features = project.get("features", [])
 
-    prompt = f"""You are an expert {stack} developer working on a real open source project.
+    files_to_generate = "\n".join(f"- {f['path']}: {f['description']}" for f in scaffold_files)
+
+    prompt = f"""You are an expert {stack} developer. Generate ALL scaffold files for this project so it is IMMEDIATELY RUNNABLE.
 
 Project: {title}
 Description: {description}
 Stack: {stack}
-Day {day} goal: {step}
+Entry point: {entry}
+Install: {install_cmd}
+Run: {run_cmd}
+Features to build: {', '.join(features)}
+
+Files needed:
+{files_to_generate}
+
+Rules:
+- Every file must be complete and real — no TODOs, no placeholders, no "implement this later"
+- The project must actually run after `{install_cmd}` and `{run_cmd}`
+- Dependencies file (requirements.txt / package.json / go.mod / Cargo.toml) must list real pinned versions
+- Entry point must have a working main function / server / CLI handler
+- .env.example must list every env var with a clear description comment
+- Config files (tsconfig, vite.config, etc) must be correct and complete
+- If it's a web app, include a basic working route that returns real data
+- If it's a CLI, include at least one working command
+
+Respond with ALL files in this EXACT repeated format (one block per file, no extra text between them):
+FILE_PATH: requirements.txt
+COMMIT_MESSAGE: chore: add dependencies
+CODE_START
+(file content)
+CODE_END
+FILE_PATH: main.py
+COMMIT_MESSAGE: feat: project entry point
+CODE_START
+(file content)
+CODE_END"""
+
+    raw = _ask(prompt)
+    # Parse multiple file blocks
+    results = []
+    pattern = re.compile(
+        r'FILE_PATH:\s*(.+?)\nCOMMIT_MESSAGE:\s*(.+?)\nCODE_START\s*\n(.*?)\nCODE_END',
+        re.DOTALL
+    )
+    for m in pattern.finditer(raw):
+        content = m.group(3).strip()
+        content = re.sub(r'^```[\w]*\n', '', content)
+        content = re.sub(r'\n```$', '', content).strip()
+        results.append({
+            "file_path": m.group(1).strip(),
+            "commit_message": m.group(2).strip(),
+            "content": content,
+        })
+    return results
+
+def generate_daily_commit(project: dict, day: int, existing_files: list[str]) -> dict:
+    roadmap = project.get("roadmap", [])
+    step = roadmap[min(day - 1, len(roadmap) - 1)] if roadmap else f"Day {day}: continue development"
+    stack = project.get("stack", project.get("language", ""))
+    title = project.get("title", "")
+    description = project.get("description", "")
+    entry = project.get("entry_point", "")
+    run_cmd = project.get("run_command", "")
+
+    prompt = f"""You are an expert {stack} developer working on a real open source project that is ALREADY RUNNING.
+
+Project: {title}
+Description: {description}
+Stack: {stack}
+Entry point: {entry}
+Run command: {run_cmd}
 Files already in repo: {', '.join(existing_files) if existing_files else 'only README.md'}
 
-Write ONE complete, production-quality code file that makes real progress on this project.
+Today's goal (Day {day}): {step}
 
-Strict rules:
-- This must be REAL working code that actually implements the described functionality
-- No placeholder comments like "# TODO" or "# implement this"
-- No fake data or mock implementations - real algorithms and logic
-- Minimum 80 lines of actual implementation
-- For {title}:
-  - If it's a language/compiler: write real lexer tokens, parser rules, AST nodes, or interpreter logic
-  - If it's a database: write real storage engine, WAL, or consensus algorithm code
-  - If it's a blockchain: write real cryptographic hashing, block validation, or transaction logic
-  - If it's a collab editor: write real CRDT operations, WebSocket handlers, or OT algorithms
-  - If it's an AI tool: write real API integrations, analysis logic, or ML pipeline code
-- Use proper data structures, error handling, and type annotations
-- Commit message must describe the EXACT feature implemented
+Write ONE complete file that implements today's goal.
+
+Hard rules:
+- The file must be real, working {stack} code — not a skeleton, not a demo
+- It must import from / integrate with the existing files listed above
+- No TODO comments, no placeholder functions, no "pass" or empty bodies
+- Use real libraries that are already in the project's dependency file
+- Minimum 60 lines of actual logic
+- The commit message must describe the exact feature added (not "add feature" — be specific)
+- File path must fit naturally into the existing project structure
+
+Examples of BAD output:
+- def process(): pass  # TODO implement
+- // Coming soon
+- return null  # implement later
+
+Examples of GOOD output:
+- A real FastAPI router with working endpoints and DB queries
+- A real React component with state, props, real API calls
+- A real CLI command with argument parsing and real logic
+- A real utility module with tested functions
 
 Respond in this EXACT format:
-FILE_PATH: src/lexer/tokenizer.py
-COMMIT_MESSAGE: feat: implement tokenizer with full token type support
+FILE_PATH: src/routes/users.py
+COMMIT_MESSAGE: feat: add user CRUD endpoints with pagination and filtering
 CODE_START
-(complete working code here)
+(complete working code)
 CODE_END"""
 
     return _parse_file_format(_ask(prompt))
 
 def generate_readme(project: dict) -> str:
-    prompt = f"""Write a professional README.md for this project:
+    prompt = f"""Write a complete professional README.md for this project:
 Title: {project['title']}
 Description: {project['description']}
 Stack: {project.get('stack', project.get('language', ''))}
-Features: {', '.join(project.get('features', [])[:10])}
-Folder structure: {', '.join(project.get('folder_structure', []))}
+Install: {project.get('install_command', '')}
+Run: {project.get('run_command', '')}
+Features: {', '.join(project.get('features', []))}
 
-Include: badges, description, features list, installation steps, usage, folder structure, contributing, license.
-Return ONLY the raw markdown content, nothing else."""
+Include ALL of these sections with real content (not placeholders):
+1. Badges (language, license)
+2. What it does (2-3 sentences)
+3. Features list
+4. Requirements (exact versions)
+5. Installation (exact commands someone can copy-paste)
+6. Usage with real example commands and expected output
+7. Environment variables table with description for each
+8. Project structure tree
+9. Contributing
+10. License (MIT)
+
+Return ONLY raw markdown. No backtick wrapper around the whole thing."""
     return _ask(prompt)
+
 
 def generate_maintenance_commit(project: dict) -> dict:
     stack = project.get('stack', project.get('language', ''))
     title = project.get('title', '')
     description = project.get('description', '')
-    existing = project.get('files', [])[:10]
+    existing = project.get('files', [])
+    entry = project.get('entry_point', '')
 
-    prompt = f"""You are an expert {stack} developer adding a new feature to a real open source project.
+    prompt = f"""You are an expert {stack} developer adding a NEW feature to a real running project.
 
 Project: {title}
 Description: {description}
 Stack: {stack}
-Existing files: {', '.join(existing)}
+Entry point: {entry}
+Existing files: {', '.join(existing[:15])}
 
-Add a NEW real feature or module. Not a fix - actual new functionality specific to this project:
-- Language/compiler project: add a new built-in function, operator, or optimization pass
-- Database project: add a new query type, index structure, or replication feature
-- Blockchain project: add a new transaction type, merkle tree, or P2P networking
-- Collab editor: add syntax highlighting, user presence, or version history
-- AI tool: add a new analysis type, integration, or reporting feature
-- Other: add the most impactful missing feature
+Add one new feature that:
+- Is genuinely useful to the project
+- Integrates with the existing files listed
+- Is completely implemented with no TODOs or placeholders
+- Is a file that doesn't exist yet in the repo
 
-Rules:
-- Real working code, minimum 60 lines
-- Must actually implement the feature, no placeholders
-- Specific commit message describing exactly what was added
+Good examples:
+- A new API endpoint file with real route handlers
+- A utility/helper module with real functions used by the main app
+- A test file with real test cases
+- A new CLI command module
+- A middleware, validator, or config module
 
 Respond in this EXACT format:
-FILE_PATH: src/feature/new_module.py
-COMMIT_MESSAGE: feat: add specific feature name
+FILE_PATH: src/utils/cache.py
+COMMIT_MESSAGE: feat: add in-memory cache with TTL for API responses
 CODE_START
-(complete working code)
+(complete working code, minimum 50 lines)
 CODE_END"""
 
     return _parse_file_format(_ask(prompt))

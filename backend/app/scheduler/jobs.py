@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.storage import read_json, write_json, append_log
-from app.services.gemini_service import generate_project_idea, generate_daily_commit, generate_maintenance_commit, generate_readme
+from app.services.gemini_service import generate_project_idea, generate_scaffold, generate_daily_commit, generate_maintenance_commit, generate_readme
 from app.services.github_service import create_repo_and_init, commit_file
 
 scheduler = BackgroundScheduler()
@@ -193,24 +193,32 @@ def _create_new_project(token: str, state: dict, projects: dict, current_slot: i
         lang = _next_language(projects)
         project = generate_project_idea(existing_names, lang)
         if not project:
-            _log("Gemini returned empty project idea", "error")
+            _log("Project idea generation returned empty", "error")
             return
 
+        # Generate README first and init repo
         readme = generate_readme(project)
         repo_url = create_repo_and_init(token, project["name"], project["description"][:350], readme)
+        _log(f"Created repo: {repo_url}")
 
-        for folder in project.get("folder_structure", []):
-            if folder.endswith("/"):
-                try:
-                    commit_file(token, project["name"], f"{folder}.gitkeep", "", f"chore: scaffold {folder}")
-                except Exception:
-                    pass
+        # Generate ALL scaffold files so project is runnable from day 1
+        committed_files = ["README.md"]
+        scaffold_files = generate_scaffold(project)
+        if not scaffold_files:
+            _log(f"Scaffold generation returned empty for {project['title']}, continuing anyway", "error")
+        for f in scaffold_files:
+            try:
+                commit_file(token, project["name"], f["file_path"], f["content"], f["commit_message"])
+                committed_files.append(f["file_path"])
+                _log(f"Scaffolded: {f['file_path']}")
+            except Exception as e:
+                _log(f"Failed to commit scaffold {f['file_path']}: {e}", "error")
 
         project = {
             **project,
             "repo_url": repo_url,
             "day": 1,
-            "files": ["README.md"],
+            "files": committed_files,
             "started_at": datetime.utcnow().isoformat(),
             "completed": False,
         }
@@ -218,7 +226,7 @@ def _create_new_project(token: str, state: dict, projects: dict, current_slot: i
         state[slot_key] = project["name"]
         state["projects"] = projects
         _save_state(state)
-        _log(f"Created new {lang} project: {project['title']} at {repo_url}")
+        _log(f"New project ready: {project['title']} ({lang}) — {len(committed_files)} files committed, runnable at {repo_url}")
     except Exception as e:
         _log(f"Failed to create project: {e}", "error")
 
