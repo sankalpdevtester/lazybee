@@ -88,34 +88,31 @@ export default function Dashboard() {
       {runMsg && <p className="text-sm text-bee-yellow bg-bee-yellow/10 border border-bee-yellow/30 rounded-lg px-4 py-2">{runMsg}</p>}
 
       {/* LeetCode cookie reminder banner */}
-      {cookieReminder?.warn && (
+      {cookieReminder && (
         <div className={`flex items-start justify-between gap-4 rounded-xl px-4 py-3 border ${
-          cookieReminder.status === 'expired'
-            ? 'bg-red-950/50 border-red-500/50'
-            : 'bg-orange-950/50 border-orange-500/50'
+          cookieReminder.status === 'expired' ? 'bg-red-950/50 border-red-500/50' :
+          cookieReminder.status === 'expiring' ? 'bg-orange-950/50 border-orange-500/50' :
+          cookieReminder.status === 'unknown' ? 'bg-orange-950/50 border-orange-500/50' :
+          'bg-green-950/30 border-green-800/50'
         }`}>
           <div className="flex items-start gap-3">
-            <AlertTriangle size={16} className={cookieReminder.status === 'expired' ? 'text-red-400 mt-0.5 shrink-0' : 'text-orange-400 mt-0.5 shrink-0'} />
-            <p className={`text-sm ${cookieReminder.status === 'expired' ? 'text-red-300' : 'text-orange-300'}`}>
+            {cookieReminder.warn
+              ? <AlertTriangle size={16} className="text-orange-400 mt-0.5 shrink-0" />
+              : <CheckCircle size={16} className="text-green-500 mt-0.5 shrink-0" />}
+            <p className={`text-sm ${
+              cookieReminder.warn ? 'text-orange-300' : 'text-green-400'
+            }`}>
               {cookieReminder.message}
             </p>
           </div>
           <button
             onClick={markCookiesUpdated}
             disabled={cookieUpdating}
-            className="shrink-0 flex items-center gap-1.5 bg-green-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+            className="shrink-0 flex items-center gap-1.5 bg-green-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors whitespace-nowrap"
           >
             {cookieUpdating ? <Loader size={12} className="animate-spin" /> : <CheckCircle size={12} />}
             Cookies Updated
           </button>
-        </div>
-      )}
-
-      {/* Cookie status when OK */}
-      {cookieReminder && !cookieReminder.warn && (
-        <div className="flex items-center gap-2 text-xs text-green-500">
-          <CheckCircle size={12} />
-          {cookieReminder.message}
         </div>
       )}
 

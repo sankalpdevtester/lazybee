@@ -21,8 +21,12 @@ def _headers():
         "Content-Type": "application/json",
         "Cookie": f"LEETCODE_SESSION={session}; csrftoken={csrf}",
         "x-csrftoken": csrf,
-        "Referer": "https://leetcode.com",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://leetcode.com/problems/",
+        "Origin": "https://leetcode.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "x-requested-with": "XMLHttpRequest",
     }
 
 def _check_auth() -> str | None:
@@ -151,11 +155,14 @@ Rules:
     return code.strip(), lang
 
 async def submit_solution(slug: str, question_id: str, code: str, lang: str = "python3") -> dict:
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         r = await client.post(
             f"https://leetcode.com/problems/{slug}/submit/",
             json={"lang": lang, "question_id": question_id, "typed_code": code},
-            headers=_headers(),
+            headers={
+                **_headers(),
+                "Referer": f"https://leetcode.com/problems/{slug}/",
+            },
         )
         if r.status_code == 403:
             raise RuntimeError("LeetCode submit returned 403 — session cookie expired")
