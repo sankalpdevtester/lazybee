@@ -169,18 +169,27 @@ async def check_submission_result(submission_id: int) -> str:
     async with httpx.AsyncClient(timeout=60) as client:
         for _ in range(20):
             await asyncio.sleep(3)
-            r = await client.get(
-                f"https://leetcode.com/submissions/detail/{submission_id}/check/",
-                headers=_headers(),
-            )
-            data = r.json()
-            state = data.get("state", "")
-            if state == "SUCCESS":
-                return data.get("status_msg", "Unknown")
-            elif state in ("PENDING", "STARTED"):
+            try:
+                r = await client.get(
+                    f"https://leetcode.com/submissions/detail/{submission_id}/check/",
+                    headers=_headers(),
+                )
+                if r.status_code == 403:
+                    raise RuntimeError("LeetCode session expired during result check (403)")
+                if r.status_code != 200:
+                    continue
+                data = r.json()
+                state = data.get("state", "")
+                if state == "SUCCESS":
+                    return data.get("status_msg", "Unknown")
+                elif state in ("PENDING", "STARTED"):
+                    continue
+                else:
+                    return state or "Unknown"
+            except RuntimeError:
+                raise
+            except Exception:
                 continue
-            else:
-                return state or "Unknown"
     return "Timeout"
 
 async def run_daily_leetcode(num_problems: int = 8):
@@ -264,9 +273,10 @@ async def run_daily_leetcode(num_problems: int = 8):
 
         submitted = 0
         session_tried = set()
+        session_expired = False
 
         for problem in queue:
-            if submitted >= num_problems:
+            if submitted >= num_problems or session_expired:
                 break
 
             slug = problem.get("titleSlug")
@@ -280,7 +290,7 @@ async def run_daily_leetcode(num_problems: int = 8):
                     continue
 
                 if submitted > 0:
-                    delay = random.randint(60, 180)
+                    delay = random.randint(15, 45)
                     log(f"Waiting {delay}s...")
                     await asyncio.sleep(delay)
 
@@ -294,7 +304,7 @@ async def run_daily_leetcode(num_problems: int = 8):
                     result = await submit_solution(slug, detail["questionId"], code, detected_lang)
                     submission_id = result.get("submission_id")
                     if not submission_id:
-                        log(f"No submission_id for {detail.get('title')}: {str(result)[:100]}", "error")
+                        log(f"No submission_id for {detail.get('title')}: {str(result)[:200]}", "error")
                         break
 
                     status = await check_submission_result(submission_id)
@@ -310,11 +320,19 @@ async def run_daily_leetcode(num_problems: int = 8):
                     else:
                         if attempt < 2:
                             log(f"Got {status}, retrying...")
-                            await asyncio.sleep(3)
+                            await asyncio.sleep(5)
 
                 if not success:
                     log(f"Skipping {detail.get('title')} after 3 attempts")
 
+            except RuntimeError as e:
+                err = str(e)
+                if "403" in err or "expired" in err.lower():
+                    log(f"Session expired mid-run after {submitted} solves. Update LEETCODE_SESSION on Render.", "error")
+                    session_expired = True
+                    break
+                log(f"Error on {problem.get('title', slug)}: {e}", "error")
+                continue
             except Exception as e:
                 log(f"Error on {problem.get('title', slug)}: {e}", "error")
                 continue
