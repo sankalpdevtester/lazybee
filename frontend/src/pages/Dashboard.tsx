@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { GitCommit, ExternalLink, Code2, Activity, RefreshCw, Play, Loader } from 'lucide-react'
+import { GitCommit, ExternalLink, Code2, Activity, RefreshCw, Play, Loader, AlertTriangle, CheckCircle } from 'lucide-react'
 import api from '../lib/api'
 
 export default function Dashboard() {
@@ -8,6 +8,18 @@ export default function Dashboard() {
   const [running, setRunning] = useState(false)
   const [runMsg, setRunMsg] = useState('')
   const [lcRunning, setLcRunning] = useState(false)
+  const [cookieUpdating, setCookieUpdating] = useState(false)
+
+  const markCookiesUpdated = async () => {
+    setCookieUpdating(true)
+    try {
+      await api.post('/dashboard/mark-cookies-updated')
+      await load()
+    } catch {
+      setRunMsg('Failed to update cookie timer.')
+    }
+    setCookieUpdating(false)
+  }
 
   const load = () => {
     setLoading(true)
@@ -48,6 +60,7 @@ export default function Dashboard() {
   const leetcode = data?.leetcode_daily
   const logs = data?.recent_logs || []
   const projects = rotation?.projects || {}
+  const cookieReminder = data?.lc_cookie_reminder
 
   const currentAccount = accounts[rotation?.current_index ?? 0]
   const activeProject = currentAccount ? projects[currentAccount.username] : null
@@ -73,6 +86,38 @@ export default function Dashboard() {
         </div>
       </div>
       {runMsg && <p className="text-sm text-bee-yellow bg-bee-yellow/10 border border-bee-yellow/30 rounded-lg px-4 py-2">{runMsg}</p>}
+
+      {/* LeetCode cookie reminder banner */}
+      {cookieReminder?.warn && (
+        <div className={`flex items-start justify-between gap-4 rounded-xl px-4 py-3 border ${
+          cookieReminder.status === 'expired'
+            ? 'bg-red-950/50 border-red-500/50'
+            : 'bg-orange-950/50 border-orange-500/50'
+        }`}>
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={16} className={cookieReminder.status === 'expired' ? 'text-red-400 mt-0.5 shrink-0' : 'text-orange-400 mt-0.5 shrink-0'} />
+            <p className={`text-sm ${cookieReminder.status === 'expired' ? 'text-red-300' : 'text-orange-300'}`}>
+              {cookieReminder.message}
+            </p>
+          </div>
+          <button
+            onClick={markCookiesUpdated}
+            disabled={cookieUpdating}
+            className="shrink-0 flex items-center gap-1.5 bg-green-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >
+            {cookieUpdating ? <Loader size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+            Cookies Updated
+          </button>
+        </div>
+      )}
+
+      {/* Cookie status when OK */}
+      {cookieReminder && !cookieReminder.warn && (
+        <div className="flex items-center gap-2 text-xs text-green-500">
+          <CheckCircle size={12} />
+          {cookieReminder.message}
+        </div>
+      )}
 
       {/* Automation status */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

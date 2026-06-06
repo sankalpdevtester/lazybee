@@ -6,23 +6,44 @@ import os
 from app.services.gemini_service import _ask
 
 LEETCODE_GQL = "https://leetcode.com/graphql"
-LEETCODE_SESSION = os.getenv("LEETCODE_SESSION", "")
-CSRF_TOKEN = os.getenv("LEETCODE_CSRF", "")
 LEETCODE_USERNAME = "q9hZI5XkeT"
 
+def _get_session():
+    return os.getenv("LEETCODE_SESSION", "")
+
+def _get_csrf():
+    return os.getenv("LEETCODE_CSRF", "")
+
 def _headers():
+    session = _get_session()
+    csrf = _get_csrf()
     return {
         "Content-Type": "application/json",
-        "Cookie": f"LEETCODE_SESSION={LEETCODE_SESSION}; csrftoken={CSRF_TOKEN}",
-        "x-csrftoken": CSRF_TOKEN,
+        "Cookie": f"LEETCODE_SESSION={session}; csrftoken={csrf}",
+        "x-csrftoken": csrf,
         "Referer": "https://leetcode.com",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     }
 
+def _check_auth() -> str | None:
+    """Returns error string if credentials are missing, None if ok."""
+    if not _get_session():
+        return "LEETCODE_SESSION is not set in .env"
+    if not _get_csrf():
+        return "LEETCODE_CSRF is not set in .env"
+    return None
+
 async def _gql(query: str, variables: dict = {}) -> dict:
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(LEETCODE_GQL, json={"query": query, "variables": variables}, headers=_headers())
-        return r.json()
+        if r.status_code == 403:
+            raise RuntimeError("LeetCode returned 403 — LEETCODE_SESSION cookie is expired. Update it in .env")
+        if r.status_code != 200:
+            raise RuntimeError(f"LeetCode GQL returned HTTP {r.status_code}")
+        data = r.json()
+        if "errors" in data:
+            raise RuntimeError(f"LeetCode GQL error: {data['errors']}")
+        return data
 
 async def get_problems(difficulty: str = "EASY", limit: int = 100) -> list:
     query = """
@@ -136,6 +157,12 @@ async def submit_solution(slug: str, question_id: str, code: str, lang: str = "p
             json={"lang": lang, "question_id": question_id, "typed_code": code},
             headers=_headers(),
         )
+        if r.status_code == 403:
+            raise RuntimeError("LeetCode submit returned 403 — session cookie expired")
+        if r.status_code == 429:
+            raise RuntimeError("LeetCode submit rate limited (429) — too many submissions")
+        if r.status_code not in (200, 201):
+            raise RuntimeError(f"LeetCode submit HTTP {r.status_code}: {r.text[:200]}")
         return r.json()
 
 async def check_submission_result(submission_id: int) -> str:
@@ -162,6 +189,17 @@ async def run_daily_leetcode(num_problems: int = 8):
 
     def log(msg, level="info"):
         append_log(datetime.utcnow().isoformat(), "leetcode", msg, level)
+
+    # Check credentials before doing anything
+    auth_err = _check_auth()
+    if auth_err:
+        log(f"SKIPPED: {auth_err}", "error")
+        return
+
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if not groq_key:
+        log("SKIPPED: GROQ_API_KEY is not set in .env", "error")
+        return
 
     try:
         progress = await get_badge_progress()

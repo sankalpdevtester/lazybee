@@ -94,6 +94,12 @@ def _next_language(projects: dict) -> str:
 
 def run_daily_automation():
     """Main daily job - runs once per day for GitHub commits."""
+    # Check LeetCode cookie reminder
+    from app.routes.dashboard import _get_cookie_reminder
+    reminder = _get_cookie_reminder()
+    if reminder.get("warn"):
+        _log(f"⚠️ COOKIE REMINDER: {reminder['message']}", "error")
+
     token = _get_token()
     if not token:
         _log("No token for sankalpdevtester", "error")
@@ -299,7 +305,7 @@ def start_scheduler():
         lc_minute = random.randint(0, 59)
         scheduler.add_job(_run_leetcode, CronTrigger(hour=_ist_to_utc(ist_lc), minute=lc_minute), id=f"leetcode_{i}", replace_existing=True)
     scheduler.start()
-    _log(f"Scheduler (IST) - GitHub {ist_hour:02d}:{minute:02d}, 12h {(ist_hour+12)%24:02d}:{minute:02d}, LC {ist_lc_hours}")
+    _log(f"Scheduler started - GitHub IST {ist_hour:02d}:{minute:02d} (UTC {hour:02d}:{minute:02d}), +12h UTC {hour2:02d}:{minute:02d}, LeetCode IST {ist_lc_hours}")
 
 def _run_leetcode():
     import asyncio

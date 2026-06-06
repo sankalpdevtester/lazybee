@@ -1,9 +1,33 @@
 from fastapi import APIRouter, Depends
 from app.routes.deps import require_auth
-from app.storage import read_json, get_logs
+from app.storage import read_json, write_json, get_logs
 from app.services.leetcode_service import fetch_daily_problem
+from datetime import datetime, timezone
 
 router = APIRouter()
+
+COOKIE_EXPIRY_DAYS = 26
+WARN_AT_DAYS = [23, 25, 26]
+
+def _get_cookie_reminder() -> dict:
+    state = read_json("lc_cookie_state")
+    updated_at = state.get("updated_at")
+    if not updated_at:
+        return {"status": "unknown", "days_old": None, "warn": True, "message": "LeetCode session date unknown — click \"Cookies Updated\" after setting them."}
+    try:
+        updated = datetime.fromisoformat(updated_at)
+        days_old = (datetime.now(timezone.utc) - updated.replace(tzinfo=timezone.utc)).days
+        days_left = COOKIE_EXPIRY_DAYS - days_old
+        if days_old >= COOKIE_EXPIRY_DAYS:
+            return {"status": "expired", "days_old": days_old, "days_left": 0, "warn": True,
+                    "message": f"LeetCode cookies are {days_old}d old — likely expired! Update LEETCODE_SESSION + CSRF on Render now."}
+        if days_old in WARN_AT_DAYS or days_old > max(WARN_AT_DAYS):
+            return {"status": "expiring", "days_old": days_old, "days_left": days_left, "warn": True,
+                    "message": f"LeetCode cookies expire in {days_left} day(s)! Update LEETCODE_SESSION + CSRF on Render."}
+        return {"status": "ok", "days_old": days_old, "days_left": days_left, "warn": False,
+                "message": f"Cookies OK — {days_left} days until refresh needed."}
+    except Exception:
+        return {"status": "unknown", "days_old": None, "warn": True, "message": "Could not parse cookie date."}
 
 @router.get("/", dependencies=[Depends(require_auth)])
 async def dashboard():
@@ -12,12 +36,14 @@ async def dashboard():
     rotation = read_json("rotation")
     logs = get_logs(10)
     leetcode = await fetch_daily_problem()
+    lc_reminder = _get_cookie_reminder()
 
     return {
         "accounts": accounts,
         "rotation": rotation,
         "recent_logs": logs,
         "leetcode_daily": leetcode,
+        "lc_cookie_reminder": lc_reminder,
     }
 
 @router.post("/run-now", dependencies=[Depends(require_auth)])
@@ -49,3 +75,10 @@ def run_leetcode():
         asyncio.run(run_daily_leetcode(8))
     threading.Thread(target=_run, daemon=True).start()
     return {"message": "LeetCode automation triggered. Solving 8 problems. Check logs."}
+
+@router.post("/mark-cookies-updated", dependencies=[Depends(require_auth)])
+def mark_cookies_updated():
+    """Call this after you update LEETCODE_SESSION + CSRF on Render to reset the 26-day timer."""
+    from datetime import datetime, timezone
+    write_json("lc_cookie_state", {"updated_at": datetime.now(timezone.utc).isoformat()})
+    return {"message": "Cookie timer reset. Next reminder in 23 days."}

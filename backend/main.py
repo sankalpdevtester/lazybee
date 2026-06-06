@@ -45,8 +45,17 @@ def _start_self_ping():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _seed_accounts()
-    start_scheduler()
+    import threading
+    def _startup():
+        try:
+            _seed_accounts()
+        except Exception as e:
+            print(f"Seed accounts failed: {e}")
+        try:
+            start_scheduler()
+        except Exception as e:
+            print(f"Scheduler failed: {e}")
+    threading.Thread(target=_startup, daemon=True).start()
     _start_self_ping()
     yield
 
