@@ -140,16 +140,39 @@ Make it look like a student wrote it:
     code = re.sub(r'\n```$', '', code.strip())
     return code.strip()
 
-async def submit_solution(slug: str, code: str, lang: str = "python3") -> dict:
-    detail = await get_problem_detail(slug)
-    question_id = detail.get("questionId")
-    async with httpx.AsyncClient(timeout=30) as client:
+async def submit_solution(slug: str, question_id: str, code: str, lang: str = "python3") -> dict:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         r = await client.post(
             f"https://leetcode.com/problems/{slug}/submit/",
             json={"lang": lang, "question_id": question_id, "typed_code": code},
-            headers=_headers(),
+            headers={**_headers(), "Referer": f"https://leetcode.com/problems/{slug}/"},
         )
+        if r.status_code not in (200, 201):
+            raise RuntimeError(f"Submit HTTP {r.status_code}")
         return r.json()
+
+async def check_result(submission_id: int) -> str:
+    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+        for _ in range(15):
+            await asyncio.sleep(4)
+            try:
+                r = await client.get(
+                    f"https://leetcode.com/submissions/detail/{submission_id}/check/",
+                    headers=_headers(),
+                )
+                if r.status_code != 200:
+                    continue
+                data = r.json()
+                state = data.get("state", "")
+                if state == "SUCCESS":
+                    return data.get("status_msg", "Unknown")
+                elif state in ("PENDING", "STARTED"):
+                    continue
+                else:
+                    return state or "Unknown"
+            except Exception:
+                continue
+    return "Timeout"
 
 async def run_daily_leetcode(num_problems: int = 8):
     from app.storage import append_log
@@ -208,13 +231,13 @@ async def run_daily_leetcode(num_problems: int = 8):
 
         submitted = 0
         attempted = 0
-        max_attempts = num_problems * 4  # try up to 4x more problems to get 5 successes
+        max_attempts = num_problems * 4
 
         for problem in queue:
             if submitted >= num_problems:
                 break
             if attempted >= max_attempts:
-                log(f"Reached max attempts ({max_attempts}), submitted {submitted}/{num_problems}")
+                log(f"Reached max attempts, got {submitted}/{num_problems}")
                 break
 
             attempted += 1
@@ -228,35 +251,46 @@ async def run_daily_leetcode(num_problems: int = 8):
                     continue
 
                 if submitted > 0:
-                    delay = random.randint(90, 360)
-                    log(f"Waiting {delay}s before next submission...")
+                    delay = random.randint(20, 60)
+                    log(f"Waiting {delay}s...")
                     await asyncio.sleep(delay)
 
-                # Try up to 2 times per problem with different code
                 success = False
-                for attempt in range(2):
-                    code = generate_human_like_solution(detail, "python3")
+                for attempt in range(3):
+                    code = generate_human_like_solution(detail)
                     if not code or len(code) < 10:
                         continue
-                    result = await submit_solution(slug, code, "python3")
+
+                    result = await submit_solution(slug, detail["questionId"], code,
+                                                   "mysql" if detail.get("codeSnippets") and
+                                                   any(s["langSlug"] == "mysql" for s in detail["codeSnippets"]) and
+                                                   not any(s["langSlug"] == "python3" for s in detail["codeSnippets"]) else "python3")
                     submission_id = result.get("submission_id")
-                    if submission_id:
-                        log(f"Submitted ({submitted+1}/{num_problems}): {detail.get('title')} ({detail.get('difficulty')}) - id: {submission_id}")
+                    if not submission_id:
+                        log(f"No submission_id for {detail.get('title')}: {str(result)[:100]}", "error")
+                        await asyncio.sleep(5)
+                        continue
+
+                    status = await check_result(submission_id)
+                    log(f"({submitted+1}/{num_problems}) {detail.get('title')} [{detail.get('difficulty')}] -> {status}")
+
+                    if status == "Accepted":
                         submitted += 1
                         success = True
                         break
                     else:
-                        log(f"Retry {attempt+1} for {detail.get('title')}: {result}")
-                        await asyncio.sleep(10)
+                        if attempt < 2:
+                            log(f"Got {status}, retrying with new solution...")
+                            await asyncio.sleep(3)
 
                 if not success:
-                    log(f"Skipping {detail.get('title')} after 2 failed attempts", "error")
+                    log(f"Skipping {detail.get('title')} after 3 attempts")
 
             except Exception as e:
                 log(f"Error on {problem.get('title', problem.get('titleSlug', ''))}: {e}", "error")
                 continue
 
-        log(f"LeetCode session done: {submitted}/{num_problems} submitted")
+        log(f"Done: {submitted}/{num_problems} accepted")
 
         badges = await get_badges()
         earned = badges.get("earned", [])

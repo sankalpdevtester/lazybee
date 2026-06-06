@@ -14,6 +14,7 @@ export default function Dashboard() {
     setCookieUpdating(true)
     try {
       await api.post('/dashboard/mark-cookies-updated')
+      setRunMsg('Cookie timer reset. Next reminder in 23 days.')
       await load()
     } catch {
       setRunMsg('Failed to update cookie timer.')
@@ -79,6 +80,11 @@ export default function Dashboard() {
             className="flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
             {lcRunning ? <Loader size={14} className="animate-spin" /> : <Play size={14} />}
             {lcRunning ? 'Running...' : 'Run LeetCode'}
+          </button>
+          <button onClick={markCookiesUpdated} disabled={cookieUpdating}
+            className="flex items-center gap-2 bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
+            {cookieUpdating ? <Loader size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+            {cookieUpdating ? 'Saving...' : 'Cookies Updated'}
           </button>
           <button onClick={load} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
             <RefreshCw size={14} /> Refresh
