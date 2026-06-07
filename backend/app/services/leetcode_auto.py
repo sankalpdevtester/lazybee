@@ -115,7 +115,7 @@ async def get_badge_progress() -> dict:
 
 def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
     title = problem.get("title", "")
-    content = (problem.get("content", "") or "")[:600]
+    content = (problem.get("content", "") or "")[:800]
     snippets = problem.get("codeSnippets") or []
     available_langs = [s["langSlug"] for s in snippets]
     if "mysql" in available_langs and "python3" not in available_langs:
@@ -124,17 +124,22 @@ def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
         lang = "bash"
     snippet = next((s["code"] for s in snippets if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
-    prompt = f"""Write a {difficulty} LeetCode solution in {lang}.
-Problem: {title}
-Description: {content}
-Starting code: {snippet}
+    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}. It must pass ALL test cases with NO Time Limit Exceeded.
 
-Make it look like a student wrote it:
-- Simple variable names (i, j, n, res, temp, curr)
-- 1-2 casual comments
-- Must be CORRECT and pass all test cases
-- Do NOT redefine TreeNode, ListNode or any provided classes
-- No markdown, return raw code only"""
+Problem: {title}
+{content}
+
+Starting code:
+{snippet}
+
+CRITICAL rules:
+- Use the OPTIMAL time complexity algorithm - never brute force O(n^2) when O(n) or O(n log n) exists
+- For tree problems: use iterative BFS/DFS with a queue/stack, not naive recursion
+- For string problems: use sliding window or hash map, not nested loops
+- For array problems: use two pointers or sorting, not O(n^2) search
+- Must be 100% correct and pass all edge cases
+- Do NOT redefine TreeNode, ListNode, or any provided classes
+- No markdown backticks, return raw code only"""
     code = _ask(prompt)
     code = re.sub(r'^```[\w]*\n', '', code.strip())
     code = re.sub(r'\n```$', '', code.strip())

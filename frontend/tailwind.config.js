@@ -6,10 +6,10 @@ export default {
       colors: {
         bee: {
           yellow: '#F5C518',
-          dark: '#0D0D0D',
-          card: '#141414',
-          border: '#1F1F1F',
-          muted: '#6B7280',
+          dark:   '#0a0a0f',
+          card:   '#0d0d14',
+          border: '#ffffff0f',
+          muted:  '#6B7280',
         }
       }
     }
