@@ -26,7 +26,9 @@ def _headers():
         "x-csrftoken": _get_csrf(),
         "Referer": "https://leetcode.com",
         "Origin": "https://leetcode.com",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
     }
 
 async def _gql(query: str, variables: dict = {}) -> dict:
@@ -34,14 +36,12 @@ async def _gql(query: str, variables: dict = {}) -> dict:
         r = await client.post(LEETCODE_GQL, json={"query": query, "variables": variables}, headers=_headers())
         return r.json()
 
-async def get_problems(difficulty: str = "EASY", limit: int = 50) -> list:
+async def get_problems(difficulty: str = "EASY", limit: int = 100) -> list:
     query = """
     query($limit: Int, $filters: QuestionListFilterInput) {
       problemsetQuestionList: questionList(
         categorySlug: "" limit: $limit skip: 0 filters: $filters
-      ) {
-        questions: data { titleSlug title difficulty }
-      }
+      ) { questions: data { titleSlug title difficulty } }
     }
     """
     data = await _gql(query, {"limit": limit, "filters": {"difficulty": difficulty}})
@@ -80,19 +80,13 @@ async def get_badges() -> dict:
     """
     data = await _gql(query, {"username": LEETCODE_USERNAME})
     user = data.get("data", {}).get("matchedUser", {})
-    return {
-        "earned": user.get("badges", []),
-        "upcoming": user.get("upcomingBadges", []),
-    }
+    return {"earned": user.get("badges", []), "upcoming": user.get("upcomingBadges", [])}
 
 async def get_badge_progress() -> dict:
-    """Check what problems to solve to earn upcoming badges."""
     query = """
     query($username: String!) {
       matchedUser(username: $username) {
-        submitStats {
-          acSubmissionNum { difficulty count }
-        }
+        submitStats { acSubmissionNum { difficulty count } }
         userCalendar { streak totalActiveDays }
       }
       activeDailyCodingChallengeQuestion {
@@ -124,7 +118,7 @@ def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
         lang = "bash"
     snippet = next((s["code"] for s in snippets if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
-    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}. It must pass ALL test cases with NO Time Limit Exceeded.
+    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}. Must pass ALL test cases, NO Time Limit Exceeded.
 
 Problem: {title}
 {content}
@@ -132,28 +126,31 @@ Problem: {title}
 Starting code:
 {snippet}
 
-CRITICAL rules:
-- Use the OPTIMAL time complexity algorithm - never brute force O(n^2) when O(n) or O(n log n) exists
-- For tree problems: use iterative BFS/DFS with a queue/stack, not naive recursion
-- For string problems: use sliding window or hash map, not nested loops
-- For array problems: use two pointers or sorting, not O(n^2) search
-- Must be 100% correct and pass all edge cases
-- Do NOT redefine TreeNode, ListNode, or any provided classes
-- No markdown backticks, return raw code only"""
+Rules:
+- OPTIMAL time complexity only — never O(n^2) when O(n) or O(n log n) exists
+- Tree problems: iterative BFS/DFS with queue/stack
+- String problems: sliding window or hash map
+- Array problems: two pointers or sorting
+- Must be 100% correct, handle all edge cases
+- Do NOT redefine TreeNode, ListNode, or provided classes
+- Return raw code only, no markdown"""
     code = _ask(prompt)
     code = re.sub(r'^```[\w]*\n', '', code.strip())
     code = re.sub(r'\n```$', '', code.strip())
     return code.strip()
 
 async def submit_solution(slug: str, question_id: str, code: str, lang: str = "python3") -> dict:
+    url = f"https://leetcode.com/problems/{slug}/submit/"
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         r = await client.post(
-            f"https://leetcode.com/problems/{slug}/submit/",
+            url,
             json={"lang": lang, "question_id": question_id, "typed_code": code},
             headers={**_headers(), "Referer": f"https://leetcode.com/problems/{slug}/"},
         )
+        if r.status_code == 403:
+            raise RuntimeError(f"Submit 403 on {url} — session rejected by LeetCode (IP mismatch or expired)")
         if r.status_code not in (200, 201):
-            raise RuntimeError(f"Submit HTTP {r.status_code}")
+            raise RuntimeError(f"Submit HTTP {r.status_code} on {url}: {r.text[:100]}")
         return r.json()
 
 async def check_result(submission_id: int) -> str:
@@ -201,12 +198,11 @@ async def run_daily_leetcode(num_problems: int = 26):
         daily_slug = daily.get("question", {}).get("titleSlug") if daily else None
         today = datetime.utcnow().strftime("%Y-%m-%d")
 
-        # Load persistent solved set from storage and merge with LC API
         state = read_json("leetcode_state")
         persistent_solved = set(state.get("solved", []))
         api_solved = await get_already_solved()
         all_solved = persistent_solved | api_solved
-        log(f"Solved: {len(all_solved)} total ({len(api_solved)} from LC API, {len(persistent_solved)} persisted) | Streak: {progress.get('streak', 0)} days")
+        log(f"Solved: {len(all_solved)} total | Streak: {progress.get('streak', 0)} days")
 
         easy = await get_problems("EASY", 100)
         medium = await get_problems("MEDIUM", 100)
@@ -214,7 +210,6 @@ async def run_daily_leetcode(num_problems: int = 26):
         all_problems = easy + medium + hard
 
         queue = []
-        # Daily challenge first if not done today
         last_daily = state.get("last_daily_date", "")
         if daily_slug and last_daily != today and daily_slug not in all_solved:
             daily_detail = await get_problem_detail(daily_slug)
@@ -222,19 +217,14 @@ async def run_daily_leetcode(num_problems: int = 26):
                 queue.append(daily_detail)
                 log(f"Daily: {daily_detail.get('title')}")
 
-        # Only unsolved problems never done before
         unsolved = [p for p in all_problems if p["titleSlug"] not in all_solved and p["titleSlug"] != daily_slug]
         random.shuffle(unsolved)
-        easy_pool = [p for p in unsolved if p["difficulty"] == "Easy"]
-        medium_pool = [p for p in unsolved if p["difficulty"] == "Medium"]
-        hard_pool = [p for p in unsolved if p["difficulty"] == "Hard"]
-        queue += easy_pool + medium_pool + hard_pool
+        queue += [p for p in unsolved if p["difficulty"] == "Easy"]
+        queue += [p for p in unsolved if p["difficulty"] == "Medium"]
+        queue += [p for p in unsolved if p["difficulty"] == "Hard"]
 
-        # Fallback only if we somehow run out of unsolved
         if len(queue) < num_problems:
-            fallback = [p for p in all_problems if p["titleSlug"] not in all_solved]
-            random.shuffle(fallback)
-            queue += fallback
+            queue += [p for p in all_problems if p["titleSlug"] not in all_solved]
 
         log(f"Queue: {len(queue)} unsolved available")
 
@@ -242,9 +232,13 @@ async def run_daily_leetcode(num_problems: int = 26):
         attempted = 0
         max_attempts = num_problems * 5
         newly_solved = set()
+        consecutive_403 = 0
 
         for problem in queue:
             if submitted >= num_problems or attempted >= max_attempts:
+                break
+            if consecutive_403 >= 3:
+                log("3 consecutive 403s — session is blocked, stopping run", "error")
                 break
             attempted += 1
 
@@ -283,6 +277,7 @@ async def run_daily_leetcode(num_problems: int = 26):
                         await asyncio.sleep(10)
                         continue
 
+                    consecutive_403 = 0  # reset on successful submit
                     status = await check_result(submission_id)
                     log(f"({submitted+1}/{num_problems}) {detail.get('title')} [{detail.get('difficulty')}] [{lang}] -> {status}")
 
@@ -292,13 +287,12 @@ async def run_daily_leetcode(num_problems: int = 26):
                         newly_solved.add(slug)
                         if slug == daily_slug:
                             state["last_daily_date"] = today
-                        # Longer pause after success to avoid rate limiting
-                        await asyncio.sleep(random.randint(30, 60))
+                        await asyncio.sleep(random.randint(20, 40))
                         break
                     else:
                         if attempt < 2:
                             log(f"Got {status}, retrying...")
-                            await asyncio.sleep(10)
+                            await asyncio.sleep(5)
 
                 if not success:
                     log(f"Skipping {detail.get('title')} after 3 attempts")
@@ -306,27 +300,22 @@ async def run_daily_leetcode(num_problems: int = 26):
             except RuntimeError as e:
                 err = str(e)
                 if "403" in err:
-                    log(f"403 rate limited, waiting 90s then continuing", "error")
+                    consecutive_403 += 1
+                    log(f"403 — {err} (consecutive: {consecutive_403})", "error")
                     await asyncio.sleep(90)
                     continue
                 log(f"Error on {problem.get('title', slug)}: {e}", "error")
-                continue
             except Exception as e:
                 log(f"Error on {problem.get('title', problem.get('titleSlug', ''))}: {e}", "error")
-                continue
 
-        # Persist all newly solved problems so they're never repeated
         if newly_solved:
             state["solved"] = list(persistent_solved | api_solved | newly_solved)
             write_json("leetcode_state", state)
-            log(f"Saved {len(newly_solved)} new solved slugs to storage (total: {len(state['solved'])})") 
+            log(f"Saved {len(newly_solved)} new solved (total: {len(state['solved'])})")
 
         log(f"Done: {submitted}/{num_problems} accepted")
         badges = await get_badges()
         log(f"Badges: {len(badges.get('earned', []))} earned | Upcoming: {[b['name'] for b in badges.get('upcoming', [])]}")
-
-    except Exception as e:
-        log(f"LeetCode run failed: {e}", "error")
 
     except Exception as e:
         log(f"LeetCode run failed: {e}", "error")
