@@ -21,8 +21,8 @@ def _check_auth():
 
 def _headers():
     """Minimal headers that match what worked before."""
-    session = _get_session()
-    csrf = _get_csrf()
+    session = _get_session().strip()
+    csrf = _get_csrf().strip()
     return {
         "Content-Type": "application/json",
         "Cookie": f"LEETCODE_SESSION={session}; csrftoken={csrf}",
@@ -197,6 +197,11 @@ async def run_daily_leetcode(num_problems: int = 26):
     if not os.getenv("GROQ_API_KEY", ""):
         log("SKIPPED: GROQ_API_KEY not set", "error")
         return
+
+    # Log session info for debugging
+    session = _get_session().strip()
+    csrf = _get_csrf().strip()
+    log(f"Session length: {len(session)} chars, CSRF length: {len(csrf)} chars, starts with: {session[:10]}...")
 
     try:
         progress = await get_badge_progress()
