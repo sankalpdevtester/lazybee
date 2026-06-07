@@ -9,6 +9,7 @@ import Logs from './pages/Logs'
 import Layout from './components/Layout'
 
 import Chat from './pages/Chat'
+import LinkedinPage from './pages/LinkedinPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   return localStorage.getItem('token') ? <>{children}</> : <Navigate to="/login" />
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="leetcode" element={<Leetcode />} />
         <Route path="logs" element={<Logs />} />
         <Route path="chat" element={<Chat />} />
+        <Route path="linkedin" element={<LinkedinPage darkMode={false} />} />
       </Route>
     </Routes>
   )

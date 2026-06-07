@@ -8,7 +8,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from app.routes import auth, github, leetcode, dashboard, chat
+from app.routes import auth, github, leetcode, dashboard, chat, linkedin
 from app.scheduler.jobs import start_scheduler
 from app.storage import read_json, write_json, DATA_DIR
 
@@ -74,6 +74,7 @@ app.include_router(github.router, prefix="/api/github")
 app.include_router(leetcode.router, prefix="/api/leetcode")
 app.include_router(chat.router, prefix="/api/chat")
 app.include_router(dashboard.router, prefix="/api/dashboard")
+app.include_router(linkedin.router, prefix="/api/linkedin")
 
 @app.get("/")
 @app.head("/")

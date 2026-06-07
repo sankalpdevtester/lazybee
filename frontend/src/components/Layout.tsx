@@ -1,11 +1,12 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Github, Code2, ScrollText, LogOut, MessageSquare, GitBranch } from 'lucide-react'
+import { LayoutDashboard, Github, Code2, ScrollText, LogOut, MessageSquare, GitBranch, Linkedin } from 'lucide-react'
 
 const nav = [
   { to: '/', icon: Github, label: 'GitHub Hub' },
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/accounts', icon: GitBranch, label: 'Accounts' },
   { to: '/leetcode', icon: Code2, label: 'LeetCode' },
+  { to: '/linkedin', icon: Linkedin, label: 'LinkedIn' },
   { to: '/logs', icon: ScrollText, label: 'Logs' },
   { to: '/chat', icon: MessageSquare, label: 'AI Assistant' },
 ]

@@ -313,9 +313,18 @@ def start_scheduler():
         lc_minute = random.randint(0, 59)
         scheduler.add_job(_run_leetcode, CronTrigger(hour=_ist_to_utc(ist_lc), minute=lc_minute), id=f"leetcode_{i}", replace_existing=True)
     scheduler.start()
-    _log(f"Scheduler started - GitHub IST {ist_hour:02d}:{minute:02d} (UTC {hour:02d}:{minute:02d}), +12h UTC {hour2:02d}:{minute:02d}, LeetCode IST {ist_lc_hours}")
+    # Daily LinkedIn post at a random IST evening time (6-9pm)
+    ist_li = random.randint(18, 21)
+    li_minute = random.randint(0, 59)
+    scheduler.add_job(_run_linkedin, CronTrigger(hour=_ist_to_utc(ist_li), minute=li_minute), id="linkedin_daily", replace_existing=True)
+    _log(f"Scheduler started - GitHub IST {ist_hour:02d}:{minute:02d} (UTC {hour:02d}:{minute:02d}), +12h UTC {hour2:02d}:{minute:02d}, LeetCode IST {ist_lc_hours}, LinkedIn IST {ist_li:02d}:{li_minute:02d}")
 
 def _run_leetcode():
     import asyncio
     from app.services.leetcode_auto import run_daily_leetcode
     asyncio.run(run_daily_leetcode(8))
+
+def _run_linkedin():
+    import asyncio
+    from app.services.linkedin_content import run_linkedin_post
+    asyncio.run(run_linkedin_post("daily_update"))
