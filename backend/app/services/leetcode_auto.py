@@ -179,7 +179,7 @@ async def check_result(submission_id: int) -> str:
                 continue
     return "Timeout"
 
-async def run_daily_leetcode(num_problems: int = 8):
+async def run_daily_leetcode(num_problems: int = 26):
     from app.storage import append_log, read_json, write_json
     from datetime import datetime
 
@@ -258,7 +258,7 @@ async def run_daily_leetcode(num_problems: int = 8):
                     continue
 
                 if submitted > 0:
-                    delay = random.randint(45, 90)
+                    delay = random.randint(15, 30)
                     log(f"Waiting {delay}s...")
                     await asyncio.sleep(delay)
 
@@ -306,11 +306,13 @@ async def run_daily_leetcode(num_problems: int = 8):
             except RuntimeError as e:
                 err = str(e)
                 if "403" in err:
-                    # Rate limited — wait longer then continue, don't abort
-                    log(f"403 on {problem.get('title', slug)} — rate limited, waiting 120s", "error")
-                    await asyncio.sleep(120)
+                    log(f"403 rate limited, waiting 90s then continuing", "error")
+                    await asyncio.sleep(90)
                     continue
                 log(f"Error on {problem.get('title', slug)}: {e}", "error")
+                continue
+            except Exception as e:
+                log(f"Error on {problem.get('title', problem.get('titleSlug', ''))}: {e}", "error")
                 continue
 
         # Persist all newly solved problems so they're never repeated

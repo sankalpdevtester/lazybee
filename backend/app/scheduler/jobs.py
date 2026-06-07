@@ -94,11 +94,10 @@ def _next_language(projects: dict) -> str:
 
 def run_daily_automation():
     """Main daily job - runs once per day for GitHub commits."""
-    # Check LeetCode cookie reminder
     from app.routes.dashboard import _get_cookie_reminder
     reminder = _get_cookie_reminder()
     if reminder.get("warn"):
-        _log(f"⚠️ COOKIE REMINDER: {reminder['message']}", "error")
+        _log(f"COOKIE REMINDER: {reminder['message']}", "error")
 
     token = _get_token()
     if not token:
@@ -109,28 +108,21 @@ def run_daily_automation():
     projects = state.get("projects", {})
     day_of_week = _day_of_week()
 
-    # Day 7 (Sunday) = maintenance on both active projects
     if day_of_week == 6:
         _do_weekly_maintenance(token, state, projects)
-        return
 
-    # First week of month = check if any old projects need revival
-    if _week_of_month() == 0 and day_of_week == 0:
-        _revive_old_projects(token, state, projects)
+    # Revive old projects every day, not just first Monday
+    _revive_old_projects(token, state, projects)
 
-    # Determine active slot (slot 0 = Mon-Wed, slot 1 = Thu-Sat)
     current_slot = 0 if day_of_week < 3 else 1
     state["current_slot"] = current_slot
     slot_key = f"slot_{current_slot}"
     slot_project_name = state.get(slot_key)
     project = projects.get(slot_project_name) if slot_project_name else None
-
-    # Check monthly project cap (max 8)
     monthly_count = _projects_this_month(projects)
 
     if not project:
         if monthly_count >= 8:
-            # Cap reached - work on existing incomplete project
             incomplete = [p for p in projects.values() if not p.get("completed") and p.get("name") not in BLOCKED_REPOS]
             if incomplete:
                 project = incomplete[0]
@@ -148,14 +140,13 @@ def run_daily_automation():
             state[slot_key] = None
             _save_state(state)
             return
-        # Check if project exceeded 7 days - start new one
         days_on_project = _days_since(project.get("started_at", ""))
         if days_on_project >= PROJECT_DAYS:
             projects[slot_project_name]["completed"] = True
             state[slot_key] = None
             state["projects"] = projects
             _save_state(state)
-            _log(f"Project {project['title']} completed after {days_on_project} days, starting new one")
+            _log(f"Project {project['title']} completed after {days_on_project} days")
             _create_new_project(token, state, projects, current_slot, slot_key)
         else:
             _continue_project(token, state, projects, slot_project_name)
@@ -236,26 +227,32 @@ def _continue_project(token: str, state: dict, projects: dict, project_name: str
         day = project.get("day", 1)
         existing_files = project.get("files", [])
 
-        _log(f"Generating day {day} commit for {project['title']}...")
-        commit_data = generate_daily_commit(project, day, existing_files)
-        if not commit_data:
-            _log("Groq returned empty commit - retrying", "error")
+        # Commit 2-3 files per day instead of 1
+        num_commits = random.randint(2, 3)
+        _log(f"Generating {num_commits} commits for day {day} of {project['title']}...")
+
+        committed_any = False
+        for i in range(num_commits):
             commit_data = generate_daily_commit(project, day, existing_files)
-        if not commit_data:
-            _log("Commit generation failed twice, skipping today", "error")
-            return
+            if not commit_data:
+                commit_data = generate_daily_commit(project, day, existing_files)
+            if not commit_data:
+                continue
+            try:
+                commit_file(token, project["name"], commit_data["file_path"], commit_data["content"], commit_data["commit_message"])
+                if commit_data["file_path"] not in existing_files:
+                    existing_files.append(commit_data["file_path"])
+                _log(f"  [{i+1}/{num_commits}] {commit_data['commit_message']}")
+                committed_any = True
+            except Exception as e:
+                _log(f"  Commit {i+1} failed: {e}", "error")
 
-        _log(f"Pushing {commit_data['file_path']} to {project['name']}...")
-        commit_file(token, project["name"], commit_data["file_path"], commit_data["content"], commit_data["commit_message"])
-
-        if commit_data["file_path"] not in existing_files:
-            existing_files.append(commit_data["file_path"])
-
-        projects[project_name]["day"] = day + 1
-        projects[project_name]["files"] = existing_files
-        state["projects"] = projects
-        _save_state(state)
-        _log(f"✅ Day {day} commit to {project['title']}: {commit_data['commit_message']}")
+        if committed_any:
+            projects[project_name]["day"] = day + 1
+            projects[project_name]["files"] = existing_files
+            state["projects"] = projects
+            _save_state(state)
+            _log(f"Day {day} done for {project['title']} ({len(existing_files)} total files)")
     except Exception as e:
         _log(f"Failed daily commit: {e}", "error")
 
@@ -279,19 +276,18 @@ def _do_weekly_maintenance(token: str, state: dict, projects: dict):
             _log(f"Weekly maintenance failed for {name}: {e}", "error")
 
 def _revive_old_projects(token: str, state: dict, projects: dict):
-    """First Monday of month - add commits to old completed projects to keep them alive."""
+    """Every day - add commits to 1-2 old completed projects to keep them alive."""
     completed = [p for p in projects.values() if p.get("completed") and p.get("name") not in BLOCKED_REPOS]
     if not completed:
         return
-    # Pick up to 3 random old projects
-    to_revive = random.sample(completed, min(3, len(completed)))
+    to_revive = random.sample(completed, min(2, len(completed)))
     for project in to_revive:
         try:
             commit_data = generate_maintenance_commit(project)
             if not commit_data:
                 continue
             commit_file(token, project["name"], commit_data["file_path"], commit_data["content"], commit_data["commit_message"])
-            _log(f"Monthly revival commit to {project['title']}: {commit_data['commit_message']}")
+            _log(f"Revival commit to {project['title']}: {commit_data['commit_message']}")
         except Exception as e:
             _log(f"Revival failed for {project['name']}: {e}", "error")
 
@@ -307,8 +303,8 @@ def start_scheduler():
     scheduler.add_job(run_daily_automation, CronTrigger(hour=hour, minute=minute), id="daily_automation", replace_existing=True)
     hour2 = (hour + 12) % 24
     scheduler.add_job(run_12h_automation, CronTrigger(hour=hour2, minute=minute), id="12h_automation", replace_existing=True)
-    # LeetCode 4x daily at random IST times
-    ist_lc_hours = sorted(random.sample(range(8, 23), 4))
+    # LeetCode 6x daily at random IST times to hit 26 problems/day
+    ist_lc_hours = sorted(random.sample(range(7, 24), 6))
     for i, ist_lc in enumerate(ist_lc_hours):
         lc_minute = random.randint(0, 59)
         scheduler.add_job(_run_leetcode, CronTrigger(hour=_ist_to_utc(ist_lc), minute=lc_minute), id=f"leetcode_{i}", replace_existing=True)
@@ -322,7 +318,7 @@ def start_scheduler():
 def _run_leetcode():
     import asyncio
     from app.services.leetcode_auto import run_daily_leetcode
-    asyncio.run(run_daily_leetcode(8))
+    asyncio.run(run_daily_leetcode(26))
 
 def _run_linkedin():
     import asyncio

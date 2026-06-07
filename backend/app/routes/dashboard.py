@@ -72,23 +72,27 @@ def run_leetcode():
     import threading, asyncio
     from app.services.leetcode_auto import run_daily_leetcode
     def _run():
-        asyncio.run(run_daily_leetcode(8))
+        asyncio.run(run_daily_leetcode(26))
     threading.Thread(target=_run, daemon=True).start()
     return {"message": "LeetCode automation triggered. Solving 8 problems. Check logs."}
 
 @router.post("/backfill-github", dependencies=[Depends(require_auth)])
 def backfill_github():
     """Backfill GitHub contribution graphs for all accounts up to June 7 2026."""
-    import threading, subprocess, sys
+    import threading, subprocess, sys, os
     def _run():
         try:
-            subprocess.run([sys.executable, "backfill_contributions.py"], cwd="/app", timeout=3600)
+            script = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "backfill_contributions.py")
+            from app.storage import append_log
+            from datetime import datetime
+            append_log(datetime.utcnow().isoformat(), "backfill", f"Starting backfill from {script}", "info")
+            subprocess.run([sys.executable, script], timeout=7200, capture_output=False)
         except Exception as e:
             from app.storage import append_log
             from datetime import datetime
             append_log(datetime.utcnow().isoformat(), "backfill", f"Backfill failed: {e}", "error")
     threading.Thread(target=_run, daemon=True).start()
-    return {"message": "GitHub contribution backfill started. This will take 10-30 minutes. Check logs."}
+    return {"message": "GitHub contribution backfill started. Takes 15-30 mins. Check Logs page."}
 
 @router.post("/mark-cookies-updated", dependencies=[Depends(require_auth)])
 def mark_cookies_updated():
