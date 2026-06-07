@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Linkedin, Send, Calendar, Clock, Trash2, Edit3, RefreshCw, Eye, CheckCircle, Loader, Plus } from 'lucide-react'
+import { Linkedin, Send, Calendar, Clock, Trash2, Edit3, RefreshCw, Eye, CheckCircle, Loader } from 'lucide-react'
 import api from '../lib/api'
 
 const POST_TYPES = [
