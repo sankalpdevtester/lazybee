@@ -9,6 +9,7 @@ export default function Dashboard() {
   const [runMsg, setRunMsg] = useState('')
   const [lcRunning, setLcRunning] = useState(false)
   const [cookieUpdating, setCookieUpdating] = useState(false)
+  const [backfilling, setBackfilling] = useState(false)
 
   const markCookiesUpdated = async () => {
     setCookieUpdating(true)
@@ -52,6 +53,19 @@ export default function Dashboard() {
     setLcRunning(false)
   }
 
+  const backfillGithub = async () => {
+    if (!confirm('This will fill all gray days on GitHub contribution graphs for all accounts up to June 7. Run once only. Continue?')) return
+    setBackfilling(true)
+    setRunMsg('')
+    try {
+      const { data } = await api.post('/dashboard/backfill-github')
+      setRunMsg(data.message)
+    } catch {
+      setRunMsg('Failed to start backfill.')
+    }
+    setBackfilling(false)
+  }
+
   useEffect(() => { load() }, [])
 
   if (loading) return <div className="flex items-center justify-center h-full text-bee-yellow">Loading...</div>
@@ -85,6 +99,11 @@ export default function Dashboard() {
             className="flex items-center gap-2 bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
             {cookieUpdating ? <Loader size={14} className="animate-spin" /> : <CheckCircle size={14} />}
             {cookieUpdating ? 'Saving...' : 'Cookies Updated'}
+          </button>
+          <button onClick={backfillGithub} disabled={backfilling}
+            className="flex items-center gap-2 bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
+            {backfilling ? <Loader size={14} className="animate-spin" /> : <Activity size={14} />}
+            {backfilling ? 'Running...' : 'Fill GitHub Graph'}
           </button>
           <button onClick={load} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
             <RefreshCw size={14} /> Refresh

@@ -9,6 +9,7 @@ export default function Dashboard() {
     const [runMsg, setRunMsg] = useState('');
     const [lcRunning, setLcRunning] = useState(false);
     const [cookieUpdating, setCookieUpdating] = useState(false);
+    const [backfilling, setBackfilling] = useState(false);
     const markCookiesUpdated = async () => {
         setCookieUpdating(true);
         try {
@@ -50,6 +51,20 @@ export default function Dashboard() {
         }
         setLcRunning(false);
     };
+    const backfillGithub = async () => {
+        if (!confirm('This will fill all gray days on GitHub contribution graphs for all accounts up to June 7. Run once only. Continue?'))
+            return;
+        setBackfilling(true);
+        setRunMsg('');
+        try {
+            const { data } = await api.post('/dashboard/backfill-github');
+            setRunMsg(data.message);
+        }
+        catch {
+            setRunMsg('Failed to start backfill.');
+        }
+        setBackfilling(false);
+    };
     useEffect(() => { load(); }, []);
     if (loading)
         return _jsx("div", { className: "flex items-center justify-center h-full text-bee-yellow", children: "Loading..." });
@@ -61,7 +76,7 @@ export default function Dashboard() {
     const cookieReminder = data?.lc_cookie_reminder;
     const currentAccount = accounts[rotation?.current_index ?? 0];
     const activeProject = currentAccount ? projects[currentAccount.username] : null;
-    return (_jsxs("div", { className: "space-y-6", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("h1", { className: "text-xl font-bold text-white", children: "Dashboard" }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsxs("button", { onClick: runNow, disabled: running, className: "flex items-center gap-2 bg-bee-yellow text-black text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity", children: [running ? _jsx(Loader, { size: 14, className: "animate-spin" }) : _jsx(Play, { size: 14 }), running ? 'Running...' : 'Run GitHub'] }), _jsxs("button", { onClick: runLeetcode, disabled: lcRunning, className: "flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity", children: [lcRunning ? _jsx(Loader, { size: 14, className: "animate-spin" }) : _jsx(Play, { size: 14 }), lcRunning ? 'Running...' : 'Run LeetCode'] }), _jsxs("button", { onClick: markCookiesUpdated, disabled: cookieUpdating, className: "flex items-center gap-2 bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity", children: [cookieUpdating ? _jsx(Loader, { size: 14, className: "animate-spin" }) : _jsx(CheckCircle, { size: 14 }), cookieUpdating ? 'Saving...' : 'Cookies Updated'] }), _jsxs("button", { onClick: load, className: "flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors", children: [_jsx(RefreshCw, { size: 14 }), " Refresh"] })] })] }), runMsg && _jsx("p", { className: "text-sm text-bee-yellow bg-bee-yellow/10 border border-bee-yellow/30 rounded-lg px-4 py-2", children: runMsg }), cookieReminder && (_jsxs("div", { className: `flex items-start justify-between gap-4 rounded-xl px-4 py-3 border ${cookieReminder.status === 'expired' ? 'bg-red-950/50 border-red-500/50' :
+    return (_jsxs("div", { className: "space-y-6", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("h1", { className: "text-xl font-bold text-white", children: "Dashboard" }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsxs("button", { onClick: runNow, disabled: running, className: "flex items-center gap-2 bg-bee-yellow text-black text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity", children: [running ? _jsx(Loader, { size: 14, className: "animate-spin" }) : _jsx(Play, { size: 14 }), running ? 'Running...' : 'Run GitHub'] }), _jsxs("button", { onClick: runLeetcode, disabled: lcRunning, className: "flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity", children: [lcRunning ? _jsx(Loader, { size: 14, className: "animate-spin" }) : _jsx(Play, { size: 14 }), lcRunning ? 'Running...' : 'Run LeetCode'] }), _jsxs("button", { onClick: markCookiesUpdated, disabled: cookieUpdating, className: "flex items-center gap-2 bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity", children: [cookieUpdating ? _jsx(Loader, { size: 14, className: "animate-spin" }) : _jsx(CheckCircle, { size: 14 }), cookieUpdating ? 'Saving...' : 'Cookies Updated'] }), _jsxs("button", { onClick: backfillGithub, disabled: backfilling, className: "flex items-center gap-2 bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity", children: [backfilling ? _jsx(Loader, { size: 14, className: "animate-spin" }) : _jsx(Activity, { size: 14 }), backfilling ? 'Running...' : 'Fill GitHub Graph'] }), _jsxs("button", { onClick: load, className: "flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors", children: [_jsx(RefreshCw, { size: 14 }), " Refresh"] })] })] }), runMsg && _jsx("p", { className: "text-sm text-bee-yellow bg-bee-yellow/10 border border-bee-yellow/30 rounded-lg px-4 py-2", children: runMsg }), cookieReminder && (_jsxs("div", { className: `flex items-start justify-between gap-4 rounded-xl px-4 py-3 border ${cookieReminder.status === 'expired' ? 'bg-red-950/50 border-red-500/50' :
                     cookieReminder.status === 'expiring' ? 'bg-orange-950/50 border-orange-500/50' :
                         cookieReminder.status === 'unknown' ? 'bg-orange-950/50 border-orange-500/50' :
                             'bg-green-950/30 border-green-800/50'}`, children: [_jsxs("div", { className: "flex items-start gap-3", children: [cookieReminder.warn

@@ -258,7 +258,7 @@ async def run_daily_leetcode(num_problems: int = 8):
                     continue
 
                 if submitted > 0:
-                    delay = random.randint(20, 60)
+                    delay = random.randint(45, 90)
                     log(f"Waiting {delay}s...")
                     await asyncio.sleep(delay)
 
@@ -280,7 +280,7 @@ async def run_daily_leetcode(num_problems: int = 8):
                     submission_id = result.get("submission_id")
                     if not submission_id:
                         log(f"No submission_id for {detail.get('title')}: {str(result)[:100]}", "error")
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(10)
                         continue
 
                     status = await check_result(submission_id)
@@ -292,17 +292,25 @@ async def run_daily_leetcode(num_problems: int = 8):
                         newly_solved.add(slug)
                         if slug == daily_slug:
                             state["last_daily_date"] = today
+                        # Longer pause after success to avoid rate limiting
+                        await asyncio.sleep(random.randint(30, 60))
                         break
                     else:
                         if attempt < 2:
                             log(f"Got {status}, retrying...")
-                            await asyncio.sleep(3)
+                            await asyncio.sleep(10)
 
                 if not success:
                     log(f"Skipping {detail.get('title')} after 3 attempts")
 
-            except Exception as e:
-                log(f"Error on {problem.get('title', problem.get('titleSlug', ''))}: {e}", "error")
+            except RuntimeError as e:
+                err = str(e)
+                if "403" in err:
+                    # Rate limited — wait longer then continue, don't abort
+                    log(f"403 on {problem.get('title', slug)} — rate limited, waiting 120s", "error")
+                    await asyncio.sleep(120)
+                    continue
+                log(f"Error on {problem.get('title', slug)}: {e}", "error")
                 continue
 
         # Persist all newly solved problems so they're never repeated
