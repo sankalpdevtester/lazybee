@@ -117,9 +117,7 @@ Rules:
     code = re.sub(r'\n```$', '', code.strip())
     return code.strip()
 
-async def submit_solution(slug: str, code: str, lang: str = "python3") -> dict:
-    detail = await get_problem_detail(slug)
-    question_id = detail.get("questionId")
+async def submit_solution(slug: str, question_id: str, code: str, lang: str = "python3") -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
             f"https://leetcode.com/problems/{slug}/submit/",
@@ -127,7 +125,7 @@ async def submit_solution(slug: str, code: str, lang: str = "python3") -> dict:
             headers=_headers(),
         )
         if not r.text.strip():
-            raise RuntimeError(f"Empty response from LeetCode for {slug} — likely premium/locked problem")
+            raise RuntimeError(f"Empty response from LeetCode for {slug} — session may be rejected")
         return r.json()
 
 async def check_result(submission_id: int) -> str:
@@ -250,7 +248,7 @@ async def run_daily_leetcode(num_problems: int = 26):
                     code = generate_human_like_solution(detail, lang)
                     if not code or len(code) < 10:
                         continue
-                    result = await submit_solution(slug, code, lang)
+                    result = await submit_solution(slug, detail["questionId"], code, lang)
                     submission_id = result.get("submission_id")
                     if not submission_id:
                         log(f"Retry {attempt+1} for {detail.get('title')}: {str(result)[:80]}")
