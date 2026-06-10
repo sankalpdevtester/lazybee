@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.storage import read_json, write_json, append_log
-from app.services.gemini_service import generate_project_idea, generate_scaffold, generate_daily_commit, generate_maintenance_commit, generate_readme
+from app.services.gemini_service import generate_project_idea, generate_scaffold, generate_daily_commit, generate_multi_file_commit, generate_maintenance_commit, generate_readme
 from app.services.github_service import create_repo_and_init, commit_file
 
 scheduler = BackgroundScheduler()
@@ -227,34 +227,85 @@ def _continue_project(token: str, state: dict, projects: dict, project_name: str
         day = project.get("day", 1)
         existing_files = project.get("files", [])
 
-        # Commit 2-3 files per day instead of 1
-        num_commits = random.randint(2, 3)
-        _log(f"Generating {num_commits} commits for day {day} of {project['title']}...")
+        _log(f"Generating multi-file batch for day {day} of {project['title']}...")
+        files = generate_multi_file_commit(project, day, existing_files)
+
+        if not files:
+            single = generate_daily_commit(project, day, existing_files)
+            files = [single] if single else []
 
         committed_any = False
-        for i in range(num_commits):
-            commit_data = generate_daily_commit(project, day, existing_files)
-            if not commit_data:
-                commit_data = generate_daily_commit(project, day, existing_files)
-            if not commit_data:
+        for f in files:
+            if not f or not f.get("file_path") or not f.get("content"):
+                continue
+            if f["file_path"] in existing_files:
                 continue
             try:
-                commit_file(token, project["name"], commit_data["file_path"], commit_data["content"], commit_data["commit_message"])
-                if commit_data["file_path"] not in existing_files:
-                    existing_files.append(commit_data["file_path"])
-                _log(f"  [{i+1}/{num_commits}] {commit_data['commit_message']}")
+                commit_file(token, project["name"], f["file_path"], f["content"], f["commit_message"])
+                existing_files.append(f["file_path"])
+                _log(f"  + {f['file_path']}: {f['commit_message']}")
                 committed_any = True
             except Exception as e:
-                _log(f"  Commit {i+1} failed: {e}", "error")
+                _log(f"  Failed {f['file_path']}: {e}", "error")
 
         if committed_any:
             projects[project_name]["day"] = day + 1
             projects[project_name]["files"] = existing_files
             state["projects"] = projects
             _save_state(state)
-            _log(f"Day {day} done for {project['title']} ({len(existing_files)} total files)")
+            _log(f"Day {day} done for {project['title']} — {len(existing_files)} total files")
+        else:
+            _log(f"No files committed for {project['title']} day {day}", "error")
     except Exception as e:
         _log(f"Failed daily commit: {e}", "error")
+
+
+def update_all_projects(token: str):
+    """Manually trigger multi-file update on ALL projects (active + completed), except lazybee."""
+    state = _get_state()
+    projects = state.get("projects", {})
+    if not projects:
+        _log("No projects found to update")
+        return
+
+    updated = 0
+    for name, project in projects.items():
+        if name in BLOCKED_REPOS:
+            continue
+        try:
+            existing_files = project.get("files", [])
+            day = project.get("day", 1)
+            _log(f"Updating {project.get('title', name)}...")
+            files = generate_multi_file_commit(project, day, existing_files)
+            if not files:
+                single = generate_maintenance_commit(project)
+                files = [single] if single else []
+
+            committed = 0
+            for f in files:
+                if not f or not f.get("file_path") or not f.get("content"):
+                    continue
+                if f["file_path"] in existing_files:
+                    continue
+                try:
+                    commit_file(token, name, f["file_path"], f["content"], f["commit_message"])
+                    existing_files.append(f["file_path"])
+                    _log(f"  + {f['file_path']}: {f['commit_message']}")
+                    committed += 1
+                except Exception as e:
+                    _log(f"  Failed {f['file_path']}: {e}", "error")
+
+            if committed > 0:
+                projects[name]["files"] = existing_files
+                projects[name]["day"] = day + 1
+                updated += 1
+                _log(f"Updated {project.get('title', name)}: {committed} files added")
+        except Exception as e:
+            _log(f"Failed to update {name}: {e}", "error")
+
+    state["projects"] = projects
+    _save_state(state)
+    _log(f"Update all done: {updated}/{len(projects)} projects updated")
 
 def _do_weekly_maintenance(token: str, state: dict, projects: dict):
     """Sunday - add small commits to both active projects."""

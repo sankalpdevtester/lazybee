@@ -194,7 +194,74 @@ CODE_END"""
         })
     return results
 
-def generate_daily_commit(project: dict, day: int, existing_files: list[str]) -> dict:
+def generate_multi_file_commit(project: dict, day: int, existing_files: list[str]) -> list[dict]:
+    """Generate 3-5 real files at once for a project update — looks like a real dev session."""
+    stack = project.get("stack", project.get("language", ""))
+    title = project.get("title", "")
+    description = project.get("description", "")
+    entry = project.get("entry_point", "")
+    roadmap = project.get("roadmap", [])
+    step = roadmap[min(day - 1, len(roadmap) - 1)] if roadmap else f"Day {day}: continue development"
+    features = project.get("features", [])
+
+    prompt = f"""You are an expert {stack} developer working on a real open source project.
+
+Project: {title}
+Description: {description}
+Stack: {stack}
+Entry point: {entry}
+Existing files: {', '.join(existing_files[:20]) if existing_files else 'only README.md'}
+Today's goal: {step}
+Project features: {', '.join(features[:5])}
+
+Generate 3 to 5 NEW files that together implement a meaningful feature batch for this project.
+Think like a real developer doing a focused work session — multiple related files that work together.
+
+Examples of good file batches:
+- An API router + its models + its tests
+- A React page + its custom hook + its API client function  
+- A CLI command module + its helper utilities + its config
+- A service class + its interface/types + its error handlers
+
+Hard rules for EVERY file:
+- Real, working {stack} code — no TODOs, no placeholders, no empty functions
+- Must integrate with existing files listed above
+- Minimum 40 lines of actual logic per file
+- Each file must serve a distinct purpose
+- File paths must fit the project structure naturally
+- Do NOT duplicate any file in: {', '.join(existing_files[:10])}
+
+Respond with ALL files in this EXACT repeated format:
+FILE_PATH: src/routes/users.py
+COMMIT_MESSAGE: feat: add user management endpoints
+CODE_START
+(complete working code)
+CODE_END
+FILE_PATH: src/models/user.py
+COMMIT_MESSAGE: feat: add User model with validation
+CODE_START
+(complete working code)
+CODE_END"""
+
+    raw = _ask(prompt)
+    results = []
+    pattern = re.compile(
+        r'FILE_PATH:\s*(.+?)\nCOMMIT_MESSAGE:\s*(.+?)\nCODE_START\s*\n(.*?)\nCODE_END',
+        re.DOTALL
+    )
+    for m in pattern.finditer(raw):
+        content = m.group(3).strip()
+        content = re.sub(r'^```[\w]*\n', '', content)
+        content = re.sub(r'\n```$', '', content).strip()
+        if len(content) > 20:
+            results.append({
+                "file_path": m.group(1).strip(),
+                "commit_message": m.group(2).strip(),
+                "content": content,
+            })
+    return results
+
+
     roadmap = project.get("roadmap", [])
     step = roadmap[min(day - 1, len(roadmap) - 1)] if roadmap else f"Day {day}: continue development"
     stack = project.get("stack", project.get("language", ""))

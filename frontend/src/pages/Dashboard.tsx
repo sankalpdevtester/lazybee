@@ -10,6 +10,7 @@ export default function Dashboard() {
   const [lcRunning, setLcRunning] = useState(false)
   const [cookieUpdating, setCookieUpdating] = useState(false)
   const [backfilling, setBackfilling] = useState(false)
+  const [updatingProjects, setUpdatingProjects] = useState(false)
 
   const markCookiesUpdated = async () => {
     setCookieUpdating(true)
@@ -66,6 +67,18 @@ export default function Dashboard() {
     setBackfilling(false)
   }
 
+  const updateAllProjects = async () => {
+    setUpdatingProjects(true)
+    setRunMsg('')
+    try {
+      const { data } = await api.post('/dashboard/update-all-projects')
+      setRunMsg(data.message)
+    } catch {
+      setRunMsg('Failed to trigger project updates.')
+    }
+    setUpdatingProjects(false)
+  }
+
   useEffect(() => { load() }, [])
 
   if (loading) return <div className="flex items-center justify-center h-full text-bee-yellow">Loading...</div>
@@ -104,6 +117,16 @@ export default function Dashboard() {
             className="flex items-center gap-2 bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
             {backfilling ? <Loader size={14} className="animate-spin" /> : <Activity size={14} />}
             {backfilling ? 'Running...' : 'Fill GitHub Graph'}
+          </button>
+          <button onClick={updateAllProjects} disabled={updatingProjects}
+            className="flex items-center gap-2 bg-violet-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
+            {updatingProjects ? <Loader size={14} className="animate-spin" /> : <GitCommit size={14} />}
+            {updatingProjects ? 'Updating...' : 'Update All Projects'}
+          </button>
+          <button onClick={updateAllProjects} disabled={updatingProjects}
+            className="flex items-center gap-2 bg-violet-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
+            {updatingProjects ? <Loader size={14} className="animate-spin" /> : <GitCommit size={14} />}
+            {updatingProjects ? 'Updating...' : 'Update All Projects'}
           </button>
           <button onClick={load} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
             <RefreshCw size={14} /> Refresh

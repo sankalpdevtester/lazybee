@@ -56,7 +56,6 @@ def run_now():
             return
         state = _get_state()
         projects = state.get("projects", {})
-        # Force slot 0 - bypass day of week check
         slot_key = "slot_0"
         slot_project_name = state.get(slot_key)
         project = projects.get(slot_project_name) if slot_project_name else None
@@ -66,6 +65,18 @@ def run_now():
             _continue_project(token, state, projects, slot_project_name)
     threading.Thread(target=_run, daemon=True).start()
     return {"message": "GitHub automation triggered. Check logs for progress."}
+
+@router.post("/update-all-projects", dependencies=[Depends(require_auth)])
+def update_all_projects():
+    """Add multi-file feature updates to ALL projects right now."""
+    import threading
+    from app.scheduler.jobs import _get_token, update_all_projects as _update_all
+    def _run():
+        token = _get_token()
+        if token:
+            _update_all(token)
+    threading.Thread(target=_run, daemon=True).start()
+    return {"message": "Updating all projects with new features. Check logs for progress."}
 
 @router.post("/run-leetcode", dependencies=[Depends(require_auth)])
 def run_leetcode():
