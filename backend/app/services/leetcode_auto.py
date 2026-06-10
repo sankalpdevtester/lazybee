@@ -29,13 +29,11 @@ async def get_problems(difficulty: str = "EASY", limit: int = 100) -> list:
     query($limit: Int, $filters: QuestionListFilterInput) {
       problemsetQuestionList: questionList(
         categorySlug: "" limit: $limit skip: 0 filters: $filters
-      ) { questions: data { titleSlug title difficulty isPaidOnly } }
+      ) { questions: data { titleSlug title difficulty } }
     }
     """
     data = await _gql(query, {"limit": limit, "filters": {"difficulty": difficulty}})
-    problems = data.get("data", {}).get("problemsetQuestionList", {}).get("questions", [])
-    # Filter out premium/paid problems immediately
-    return [p for p in problems if not p.get("isPaidOnly", False)]
+    return data.get("data", {}).get("problemsetQuestionList", {}).get("questions", [])
 
 async def get_already_solved() -> set:
     query = """
@@ -157,7 +155,7 @@ async def check_result(submission_id: int) -> str:
                 continue
     return "Timeout"
 
-async def run_daily_leetcode(num_problems: int = 26):
+async def run_daily_leetcode(num_problems: int = 5):
     from app.storage import append_log, read_json, write_json
     from datetime import datetime
 
@@ -239,7 +237,7 @@ async def run_daily_leetcode(num_problems: int = 26):
                     continue
 
                 if submitted > 0:
-                    delay = random.randint(30, 90)
+                    delay = random.randint(90, 150)
                     log(f"Waiting {delay}s...")
                     await asyncio.sleep(delay)
 
@@ -290,7 +288,8 @@ async def run_daily_leetcode(num_problems: int = 26):
                     if consecutive_errors >= 3:
                         log("3 consecutive session errors — stopping run. Update LEETCODE_SESSION on Render.", "error")
                         break
-                    await asyncio.sleep(60)
+                    log(f"Session error, waiting 3 minutes before retrying...", "error")
+                    await asyncio.sleep(180)
                 else:
                     consecutive_errors = 0
                 continue
