@@ -124,9 +124,16 @@ async def submit_solution(slug: str, question_id: str, code: str, lang: str = "p
             json={"lang": lang, "question_id": question_id, "typed_code": code},
             headers=_headers(),
         )
+        if r.status_code in (301, 302):
+            raise RuntimeError(f"Redirect {r.status_code} — session rejected")
+        if r.status_code == 403:
+            raise RuntimeError(f"403 — session rejected")
         if not r.text.strip():
-            raise RuntimeError(f"Empty response from LeetCode for {slug} — session may be rejected")
-        return r.json()
+            raise RuntimeError(f"Empty response (status {r.status_code}) — session likely rejected")
+        try:
+            return r.json()
+        except Exception:
+            raise RuntimeError(f"Non-JSON response (status {r.status_code}): {r.text[:100]}")
 
 async def check_result(submission_id: int) -> str:
     async with httpx.AsyncClient(timeout=60) as client:
@@ -198,6 +205,7 @@ async def run_daily_leetcode(num_problems: int = 26):
         random.shuffle(unsolved)
         queue += [p for p in unsolved if p["difficulty"] == "Easy"]
         queue += [p for p in unsolved if p["difficulty"] == "Medium"]
+        # Hard problems last - deprioritized due to TLE risk
         queue += [p for p in unsolved if p["difficulty"] == "Hard"]
 
         log(f"Queue: {len(queue)} free unsolved, targeting {num_problems} accepted")
@@ -206,6 +214,7 @@ async def run_daily_leetcode(num_problems: int = 26):
         attempted = 0
         max_attempts = num_problems * 4
         newly_solved = set()
+        consecutive_errors = 0
 
         for problem in queue:
             if submitted >= num_problems:
@@ -262,6 +271,7 @@ async def run_daily_leetcode(num_problems: int = 26):
                         submitted += 1
                         success = True
                         newly_solved.add(slug)
+                        consecutive_errors = 0
                         if slug == daily_slug:
                             state["last_daily_date"] = today
                         break
@@ -273,7 +283,16 @@ async def run_daily_leetcode(num_problems: int = 26):
                     log(f"Skipping {detail.get('title')} after 3 attempts")
 
             except Exception as e:
-                log(f"Error on {problem.get('title', problem.get('titleSlug', ''))}: {e}", "error")
+                err = str(e)
+                log(f"Error on {problem.get('title', problem.get('titleSlug', ''))}: {err}", "error")
+                if "session" in err.lower() or "403" in err or "redirect" in err.lower() or "empty" in err.lower():
+                    consecutive_errors += 1
+                    if consecutive_errors >= 3:
+                        log("3 consecutive session errors — stopping run. Update LEETCODE_SESSION on Render.", "error")
+                        break
+                    await asyncio.sleep(60)
+                else:
+                    consecutive_errors = 0
                 continue
 
         if newly_solved:
