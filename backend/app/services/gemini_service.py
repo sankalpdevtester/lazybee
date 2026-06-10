@@ -194,6 +194,44 @@ CODE_END"""
         })
     return results
 
+def generate_daily_commit(project: dict, day: int, existing_files: list[str]) -> dict:
+    """Generate a single file commit for a project — fallback when multi-file fails."""
+    roadmap = project.get("roadmap", [])
+    step = roadmap[min(day - 1, len(roadmap) - 1)] if roadmap else f"Day {day}: continue development"
+    stack = project.get("stack", project.get("language", ""))
+    title = project.get("title", "")
+    description = project.get("description", "")
+    entry = project.get("entry_point", "")
+    run_cmd = project.get("run_command", "")
+
+    prompt = f"""You are an expert {stack} developer working on a real open source project that is ALREADY RUNNING.
+
+Project: {title}
+Description: {description}
+Stack: {stack}
+Entry point: {entry}
+Run command: {run_cmd}
+Files already in repo: {', '.join(existing_files) if existing_files else 'only README.md'}
+Today's goal (Day {day}): {step}
+
+Write ONE complete file that implements today's goal.
+Rules:
+- Real working {stack} code, no TODOs, no placeholders
+- Integrates with existing files listed above
+- Minimum 60 lines of actual logic
+- File path fits the existing project structure
+- Do NOT duplicate any file in the existing list
+
+Respond in this EXACT format:
+FILE_PATH: src/routes/users.py
+COMMIT_MESSAGE: feat: add user CRUD endpoints
+CODE_START
+(complete working code)
+CODE_END"""
+
+    return _parse_file_format(_ask(prompt))
+
+
 def generate_multi_file_commit(project: dict, day: int, existing_files: list[str]) -> list[dict]:
     """Generate 3-5 real files at once for a project update — looks like a real dev session."""
     stack = project.get("stack", project.get("language", ""))
