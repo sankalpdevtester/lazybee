@@ -116,12 +116,24 @@ Rules:
     return code.strip()
 
 async def submit_solution(slug: str, question_id: str, code: str, lang: str = "python3") -> dict:
+    url = f"https://leetcode.com/problems/{slug}/submit/"
+    proxy_url = os.getenv("LEETCODE_PROXY_URL", "").strip()
+    proxy_secret = os.getenv("LEETCODE_PROXY_SECRET", "").strip()
+
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(
-            f"https://leetcode.com/problems/{slug}/submit/",
-            json={"lang": lang, "question_id": question_id, "typed_code": code},
-            headers=_headers(),
-        )
+        if proxy_url and proxy_secret:
+            # Route through Cloudflare Worker proxy to avoid AWS IP block
+            r = await client.post(
+                proxy_url,
+                json={"url": url, "method": "POST", "headers": _headers(),
+                      "data": {"lang": lang, "question_id": question_id, "typed_code": code}},
+                headers={"X-Proxy-Secret": proxy_secret, "Content-Type": "application/json"},
+            )
+        else:
+            r = await client.post(url,
+                json={"lang": lang, "question_id": question_id, "typed_code": code},
+                headers=_headers())
+
         if r.status_code in (301, 302):
             raise RuntimeError(f"Redirect {r.status_code} — session rejected")
         if r.status_code == 403:
