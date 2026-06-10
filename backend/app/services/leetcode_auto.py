@@ -133,6 +133,29 @@ async def submit_solution(slug: str, code: str, lang: str = "python3") -> dict:
         )
         return r.json()
 
+async def check_result(submission_id: int) -> str:
+    """Poll for submission result. Returns status_msg e.g. 'Accepted', 'Wrong Answer'."""
+    async with httpx.AsyncClient(timeout=60) as client:
+        for _ in range(20):
+            await asyncio.sleep(3)
+            try:
+                r = await client.get(
+                    f"https://leetcode.com/submissions/detail/{submission_id}/check/",
+                    headers=_headers(),
+                )
+                if r.status_code != 200:
+                    continue
+                data = r.json()
+                state = data.get("state", "")
+                if state == "SUCCESS":
+                    return data.get("status_msg", "Unknown")
+                if state in ("PENDING", "STARTED"):
+                    continue
+                return state or "Unknown"
+            except Exception:
+                continue
+    return "Timeout"
+
 async def run_daily_leetcode(num_problems: int = 26):
     from app.storage import append_log, read_json, write_json
     from datetime import datetime
@@ -230,26 +253,33 @@ async def run_daily_leetcode(num_problems: int = 26):
                     lang = "python3"
 
                 success = False
-                for attempt in range(2):
+                for attempt in range(3):
                     code = generate_human_like_solution(detail, lang)
                     if not code or len(code) < 10:
                         continue
                     result = await submit_solution(slug, code, lang)
                     submission_id = result.get("submission_id")
-                    if submission_id:
-                        log(f"({submitted+1}/{num_problems}) {detail.get('title')} ({detail.get('difficulty')}) [{lang}] submitted: {submission_id}")
+                    if not submission_id:
+                        log(f"Retry {attempt+1} for {detail.get('title')}: {str(result)[:80]}")
+                        await asyncio.sleep(10)
+                        continue
+
+                    status = await check_result(submission_id)
+                    log(f"({submitted+1}/{num_problems}) {detail.get('title')} ({detail.get('difficulty')}) [{lang}] -> {status}")
+
+                    if status == "Accepted":
                         submitted += 1
                         success = True
                         newly_solved.add(slug)
                         if slug == daily_slug:
                             state["last_daily_date"] = today
                         break
-                    else:
-                        log(f"Retry {attempt+1} for {detail.get('title')}: {str(result)[:80]}")
-                        await asyncio.sleep(10)
+                    elif attempt < 2:
+                        log(f"Got {status}, retrying with new solution...")
+                        await asyncio.sleep(5)
 
                 if not success:
-                    log(f"Skipping {detail.get('title')} after 2 failed attempts", "error")
+                    log(f"Skipping {detail.get('title')} after 3 attempts")
 
             except Exception as e:
                 log(f"Error on {problem.get('title', problem.get('titleSlug', ''))}: {e}", "error")
