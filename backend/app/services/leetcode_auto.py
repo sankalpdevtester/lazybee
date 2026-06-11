@@ -271,34 +271,32 @@ async def run_daily_leetcode(num_problems: int = 5):
                     lang = "python3"
 
                 success = False
-                for attempt in range(3):
-                    code = generate_human_like_solution(detail, lang)
-                    if not code or len(code) < 10:
-                        continue
-                    result = await submit_solution(slug, detail["questionId"], code, lang)
-                    submission_id = result.get("submission_id")
-                    if not submission_id:
-                        log(f"Retry {attempt+1} for {detail.get('title')}: {str(result)[:80]}")
-                        await asyncio.sleep(10)
-                        continue
+                code = generate_human_like_solution(detail, lang)
+                if not code or len(code) < 10:
+                    log(f"Empty code for {detail.get('title')}, skipping")
+                    continue
+                result = await submit_solution(slug, detail["questionId"], code, lang)
+                submission_id = result.get("submission_id")
+                if not submission_id:
+                    log(f"No submission_id for {detail.get('title')}: {str(result)[:80]}")
+                    continue
 
-                    status = await check_result(submission_id)
-                    log(f"({submitted+1}/{num_problems}) {detail.get('title')} ({detail.get('difficulty')}) [{lang}] -> {status}")
+                status = await check_result(submission_id)
+                log(f"({submitted+1}/{num_problems}) {detail.get('title')} ({detail.get('difficulty')}) [{lang}] -> {status}")
 
-                    if status == "Accepted":
-                        submitted += 1
-                        success = True
-                        newly_solved.add(slug)
-                        consecutive_errors = 0
-                        if slug == daily_slug:
-                            state["last_daily_date"] = today
-                        break
-                    elif attempt < 2:
-                        log(f"Got {status}, retrying...")
-                        await asyncio.sleep(5)
+                if status == "Accepted":
+                    submitted += 1
+                    success = True
+                    newly_solved.add(slug)
+                    consecutive_errors = 0
+                    if slug == daily_slug:
+                        state["last_daily_date"] = today
+                else:
+                    # Wrong Answer / TLE / Runtime Error — move on, don't retry same problem
+                    log(f"Got {status} on {detail.get('title')} — moving to next problem")
 
                 if not success:
-                    log(f"Skipping {detail.get('title')} after 3 attempts")
+                    log(f"Skipping {detail.get('title')}")
 
             except Exception as e:
                 err = str(e)
