@@ -145,26 +145,32 @@ async def submit_solution(slug: str, question_id: str, code: str, lang: str = "p
         except Exception:
             raise RuntimeError(f"Non-JSON response (status {r.status_code}): {r.text[:100]}")
 
+async def _proxy_get(url: str) -> dict:
+    """GET request through Cloudflare proxy if configured, else direct."""
+    proxy_url = os.getenv("LEETCODE_PROXY_URL", "").strip()
+    proxy_secret = os.getenv("LEETCODE_PROXY_SECRET", "").strip()
+    async with httpx.AsyncClient(timeout=30) as client:
+        if proxy_url and proxy_secret:
+            r = await client.post(proxy_url,
+                json={"url": url, "method": "GET", "headers": _headers()},
+                headers={"X-Proxy-Secret": proxy_secret, "Content-Type": "application/json"})
+        else:
+            r = await client.get(url, headers=_headers())
+        if r.status_code != 200:
+            return {}
+        try: return r.json()
+        except: return {}
+
 async def check_result(submission_id: int) -> str:
-    async with httpx.AsyncClient(timeout=60) as client:
-        for _ in range(20):
-            await asyncio.sleep(3)
-            try:
-                r = await client.get(
-                    f"https://leetcode.com/submissions/detail/{submission_id}/check/",
-                    headers=_headers(),
-                )
-                if r.status_code != 200:
-                    continue
-                data = r.json()
-                state = data.get("state", "")
-                if state == "SUCCESS":
-                    return data.get("status_msg", "Unknown")
-                if state in ("PENDING", "STARTED"):
-                    continue
-                return state or "Unknown"
-            except Exception:
-                continue
+    for _ in range(20):
+        await asyncio.sleep(3)
+        try:
+            data = await _proxy_get(f"https://leetcode.com/submissions/detail/{submission_id}/check/")
+            state = data.get("state", "")
+            if state == "SUCCESS": return data.get("status_msg", "Unknown")
+            if state in ("PENDING", "STARTED"): continue
+            if state: return state
+        except: continue
     return "Timeout"
 
 async def run_daily_leetcode(num_problems: int = 5):
@@ -184,6 +190,8 @@ async def run_daily_leetcode(num_problems: int = 5):
         return
 
     log(f"Session: {len(session)} chars, IP check: {session[session.find('ip')+5:session.find('ip')+20] if 'ip' in session else 'n/a'}")
+    proxy_url = os.getenv("LEETCODE_PROXY_URL", "").strip()
+    log(f"Proxy: {'ACTIVE -> ' + proxy_url[:40] if proxy_url else 'DISABLED (direct to LC)'}")
 
     try:
         progress = await get_badge_progress()
