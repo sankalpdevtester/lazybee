@@ -97,19 +97,27 @@ async def get_badge_progress() -> dict:
 
 def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
     title = problem.get("title", "")
-    content = (problem.get("content", "") or "")[:600]
+    content = (problem.get("content", "") or "")[:800]
     snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
-    prompt = f"""Solve this LeetCode {difficulty} problem in {lang}. Must pass ALL test cases with NO Time Limit Exceeded.
+    prompt = f"""You are an expert competitive programmer. Solve this LeetCode {difficulty} problem CORRECTLY in {lang}.
+
 Problem: {title}
 {content}
-Starting code: {snippet}
 
-Rules:
-- Use OPTIMAL time complexity — never O(n^2) when O(n) exists
-- Must be 100% correct and handle all edge cases
-- Do NOT redefine TreeNode, ListNode, or any provided classes
-- No markdown backticks, return raw code only"""
+Starting code template:
+{snippet}
+
+CRITICAL requirements:
+1. The solution MUST be 100% correct and pass ALL test cases including edge cases
+2. Use the most efficient algorithm - optimal time and space complexity
+3. For graph/tree problems: use BFS/DFS iteratively
+4. For DP problems: identify the correct recurrence relation
+5. Handle ALL edge cases: empty input, single element, maximum constraints
+6. Do NOT redefine TreeNode, ListNode, or any class in the template
+7. Return ONLY the raw code - no markdown, no backticks, no explanation
+
+Think through the algorithm carefully before writing code. The answer must be mathematically correct."""
     code = _ask(prompt)
     code = re.sub(r'^```[\w]*\n', '', code.strip())
     code = re.sub(r'\n```$', '', code.strip())
@@ -260,6 +268,9 @@ async def run_daily_leetcode(num_problems: int = 5):
                     delay = random.randint(90, 150)
                     log(f"Waiting {delay}s...")
                     await asyncio.sleep(delay)
+                else:
+                    # First submission - small warmup delay
+                    await asyncio.sleep(random.randint(5, 15))
 
                 snippets = detail.get("codeSnippets") or []
                 available = [s["langSlug"] for s in snippets]
