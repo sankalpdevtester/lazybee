@@ -9,177 +9,89 @@ LEETCODE_GQL = "https://leetcode.com/graphql"
 LEETCODE_USERNAME = "q9hZI5XkeT"
 
 def _headers():
-    session = os.getenv("LEETCODE_SESSION", "").strip()
-    csrf = os.getenv("LEETCODE_CSRF", "").strip()
     return {
         "Content-Type": "application/json",
-        "Cookie": f"LEETCODE_SESSION={session}; csrftoken={csrf}",
-        "x-csrftoken": csrf,
+        "Cookie": f"LEETCODE_SESSION={os.getenv('LEETCODE_SESSION','').strip()}; csrftoken={os.getenv('LEETCODE_CSRF','').strip()}",
+        "x-csrftoken": os.getenv("LEETCODE_CSRF", "").strip(),
         "Referer": "https://leetcode.com",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     }
 
+async def _proxy(method: str, url: str, json_body=None) -> httpx.Response:
+    """All LeetCode requests go through Cloudflare proxy if set, else direct."""
+    proxy_url = os.getenv("LEETCODE_PROXY_URL", "").strip()
+    proxy_secret = os.getenv("LEETCODE_PROXY_SECRET", "").strip()
+    async with httpx.AsyncClient(timeout=30) as client:
+        if proxy_url and proxy_secret:
+            return await client.post(
+                proxy_url,
+                json={"url": url, "method": method, "headers": _headers(), "data": json_body},
+                headers={"X-Proxy-Secret": proxy_secret, "Content-Type": "application/json"},
+            )
+        if method == "GET":
+            return await client.get(url, headers=_headers())
+        return await client.post(url, json=json_body, headers=_headers())
+
 async def _gql(query: str, variables: dict = {}) -> dict:
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.post(LEETCODE_GQL, json={"query": query, "variables": variables}, headers=_headers())
+    r = await _proxy("POST", LEETCODE_GQL, {"query": query, "variables": variables})
+    try:
         return r.json()
-
-async def get_problems(difficulty: str = "EASY", limit: int = 100) -> list:
-    query = """
-    query($limit: Int, $filters: QuestionListFilterInput) {
-      problemsetQuestionList: questionList(
-        categorySlug: "" limit: $limit skip: 0 filters: $filters
-      ) { questions: data { titleSlug title difficulty } }
-    }
-    """
-    data = await _gql(query, {"limit": limit, "filters": {"difficulty": difficulty}})
-    return data.get("data", {}).get("problemsetQuestionList", {}).get("questions", [])
-
-async def get_already_solved() -> set:
-    query = """
-    query($username: String!) {
-      recentAcSubmissionList(username: $username, limit: 100) { titleSlug }
-    }
-    """
-    data = await _gql(query, {"username": LEETCODE_USERNAME})
-    subs = data.get("data", {}).get("recentAcSubmissionList", []) or []
-    return {s["titleSlug"] for s in subs}
-
-async def get_problem_detail(slug: str) -> dict:
-    query = """
-    query($titleSlug: String!) {
-      question(titleSlug: $titleSlug) {
-        questionId title titleSlug content difficulty isPaidOnly
-        codeSnippets { lang langSlug code }
-      }
-    }
-    """
-    data = await _gql(query, {"titleSlug": slug})
-    return data.get("data", {}).get("question", {})
-
-async def get_badges() -> dict:
-    query = """
-    query($username: String!) {
-      matchedUser(username: $username) {
-        badges { id name icon displayName }
-        upcomingBadges { name icon }
-      }
-    }
-    """
-    data = await _gql(query, {"username": LEETCODE_USERNAME})
-    user = data.get("data", {}).get("matchedUser", {})
-    return {"earned": user.get("badges", []), "upcoming": user.get("upcomingBadges", [])}
+    except Exception:
+        return {}
 
 async def get_badge_progress() -> dict:
-    query = """
-    query($username: String!) {
-      matchedUser(username: $username) {
-        submitStats { acSubmissionNum { difficulty count } }
-        userCalendar { streak totalActiveDays }
-      }
-      activeDailyCodingChallengeQuestion {
-        date
-        question { titleSlug title difficulty }
-      }
-    }
-    """
-    data = await _gql(query, {"username": LEETCODE_USERNAME})
+    data = await _gql("""query($u:String!){
+      matchedUser(username:$u){submitStats{acSubmissionNum{difficulty count}}userCalendar{streak}}
+      activeDailyCodingChallengeQuestion{date question{titleSlug title difficulty}}
+    }""", {"u": LEETCODE_USERNAME})
     user = data.get("data", {}).get("matchedUser", {})
     daily = data.get("data", {}).get("activeDailyCodingChallengeQuestion", {})
     stats = {s["difficulty"]: s["count"] for s in user.get("submitStats", {}).get("acSubmissionNum", [])}
-    calendar = user.get("userCalendar", {})
-    return {
-        "solved": stats,
-        "streak": calendar.get("streak", 0),
-        "active_days": calendar.get("totalActiveDays", 0),
-        "daily_challenge": daily,
-    }
+    return {"solved": stats, "streak": user.get("userCalendar", {}).get("streak", 0), "daily_challenge": daily}
 
-def generate_human_like_solution(problem: dict, lang: str = "python3") -> str:
+async def get_badges() -> dict:
+    data = await _gql("""query($u:String!){matchedUser(username:$u){badges{id name icon displayName}upcomingBadges{name icon}}}""", {"u": LEETCODE_USERNAME})
+    user = data.get("data", {}).get("matchedUser", {})
+    return {"earned": user.get("badges", []), "upcoming": user.get("upcomingBadges", [])}
+
+async def get_problems(difficulty: str, limit: int = 100) -> list:
+    data = await _gql("""query($limit:Int,$filters:QuestionListFilterInput){
+      problemsetQuestionList:questionList(categorySlug:"" limit:$limit skip:0 filters:$filters){
+        questions:data{titleSlug title difficulty}}}""",
+        {"limit": limit, "filters": {"difficulty": difficulty}})
+    return data.get("data", {}).get("problemsetQuestionList", {}).get("questions", [])
+
+async def get_already_solved() -> set:
+    data = await _gql("""query($u:String!){recentAcSubmissionList(username:$u,limit:100){titleSlug}}""", {"u": LEETCODE_USERNAME})
+    return {s["titleSlug"] for s in (data.get("data", {}).get("recentAcSubmissionList") or [])}
+
+async def get_problem_detail(slug: str) -> dict:
+    data = await _gql("""query($s:String!){question(titleSlug:$s){
+      questionId title titleSlug difficulty isPaidOnly
+      codeSnippets{lang langSlug code}}}""", {"s": slug})
+    return data.get("data", {}).get("question", {}) or {}
+
+def solve(problem: dict, lang: str) -> str:
     title = problem.get("title", "")
     content = (problem.get("content", "") or "")[:800]
     snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
-    prompt = f"""You are an expert competitive programmer. Solve this LeetCode {difficulty} problem CORRECTLY in {lang}.
+    code = _ask(f"""Solve this LeetCode {difficulty} problem in {lang}. Must be 100% correct, pass ALL test cases, no TLE.
 
 Problem: {title}
 {content}
 
-Starting code template:
+Starting code:
 {snippet}
 
-CRITICAL requirements:
-1. The solution MUST be 100% correct and pass ALL test cases including edge cases
-2. Use the most efficient algorithm - optimal time and space complexity
-3. For graph/tree problems: use BFS/DFS iteratively
-4. For DP problems: identify the correct recurrence relation
-5. Handle ALL edge cases: empty input, single element, maximum constraints
-6. Do NOT redefine TreeNode, ListNode, or any class in the template
-7. Return ONLY the raw code - no markdown, no backticks, no explanation
-
-Think through the algorithm carefully before writing code. The answer must be mathematically correct."""
-    code = _ask(prompt)
+Rules:
+- Return ONLY raw code, no markdown, no explanation
+- Optimal time complexity
+- Handle all edge cases
+- Do NOT redefine TreeNode, ListNode or any provided class""")
     code = re.sub(r'^```[\w]*\n', '', code.strip())
     code = re.sub(r'\n```$', '', code.strip())
     return code.strip()
-
-async def submit_solution(slug: str, question_id: str, code: str, lang: str = "python3") -> dict:
-    url = f"https://leetcode.com/problems/{slug}/submit/"
-    proxy_url = os.getenv("LEETCODE_PROXY_URL", "").strip()
-    proxy_secret = os.getenv("LEETCODE_PROXY_SECRET", "").strip()
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        if proxy_url and proxy_secret:
-            # Route through Cloudflare Worker proxy to avoid AWS IP block
-            r = await client.post(
-                proxy_url,
-                json={"url": url, "method": "POST", "headers": _headers(),
-                      "data": {"lang": lang, "question_id": question_id, "typed_code": code}},
-                headers={"X-Proxy-Secret": proxy_secret, "Content-Type": "application/json"},
-            )
-        else:
-            r = await client.post(url,
-                json={"lang": lang, "question_id": question_id, "typed_code": code},
-                headers=_headers())
-
-        if r.status_code in (301, 302):
-            raise RuntimeError(f"Redirect {r.status_code} — session rejected")
-        if r.status_code == 403:
-            raise RuntimeError(f"403 — session rejected")
-        if not r.text.strip():
-            raise RuntimeError(f"Empty response (status {r.status_code}) — session likely rejected")
-        try:
-            return r.json()
-        except Exception:
-            raise RuntimeError(f"Non-JSON response (status {r.status_code}): {r.text[:100]}")
-
-async def _proxy_get(url: str) -> dict:
-    """GET request through Cloudflare proxy if configured, else direct."""
-    proxy_url = os.getenv("LEETCODE_PROXY_URL", "").strip()
-    proxy_secret = os.getenv("LEETCODE_PROXY_SECRET", "").strip()
-    async with httpx.AsyncClient(timeout=30) as client:
-        if proxy_url and proxy_secret:
-            r = await client.post(proxy_url,
-                json={"url": url, "method": "GET", "headers": _headers()},
-                headers={"X-Proxy-Secret": proxy_secret, "Content-Type": "application/json"})
-        else:
-            r = await client.get(url, headers=_headers())
-        if r.status_code != 200:
-            return {}
-        try: return r.json()
-        except: return {}
-
-async def check_result(submission_id: int) -> str:
-    for _ in range(20):
-        await asyncio.sleep(3)
-        try:
-            data = await _proxy_get(f"https://leetcode.com/submissions/detail/{submission_id}/check/")
-            state = data.get("state", "")
-            if state == "SUCCESS": return data.get("status_msg", "Unknown")
-            if state in ("PENDING", "STARTED"): continue
-            if state: return state
-        except: continue
-    return "Timeout"
 
 async def run_daily_leetcode(num_problems: int = 5):
     from app.storage import append_log, read_json, write_json
@@ -188,18 +100,15 @@ async def run_daily_leetcode(num_problems: int = 5):
     def log(msg, level="info"):
         append_log(datetime.utcnow().isoformat(), "leetcode", msg, level)
 
-    session = os.getenv("LEETCODE_SESSION", "").strip()
-    csrf = os.getenv("LEETCODE_CSRF", "").strip()
-    if not session or not csrf:
-        log("SKIPPED: LEETCODE_SESSION or LEETCODE_CSRF not set", "error")
-        return
-    if not os.getenv("GROQ_API_KEY", ""):
-        log("SKIPPED: GROQ_API_KEY not set", "error")
-        return
+    if not os.getenv("LEETCODE_SESSION", "").strip():
+        log("SKIPPED: LEETCODE_SESSION not set", "error"); return
+    if not os.getenv("LEETCODE_CSRF", "").strip():
+        log("SKIPPED: LEETCODE_CSRF not set", "error"); return
+    if not os.getenv("GROQ_API_KEY", "").strip():
+        log("SKIPPED: GROQ_API_KEY not set", "error"); return
 
-    log(f"Session: {len(session)} chars, IP check: {session[session.find('ip')+5:session.find('ip')+20] if 'ip' in session else 'n/a'}")
-    proxy_url = os.getenv("LEETCODE_PROXY_URL", "").strip()
-    log(f"Proxy: {'ACTIVE -> ' + proxy_url[:40] if proxy_url else 'DISABLED (direct to LC)'}")
+    proxy = os.getenv("LEETCODE_PROXY_URL", "").strip()
+    log(f"Proxy: {'ACTIVE -> ' + proxy[:50] if proxy else 'DISABLED'}")
 
     try:
         progress = await get_badge_progress()
@@ -208,132 +117,146 @@ async def run_daily_leetcode(num_problems: int = 5):
         today = datetime.utcnow().strftime("%Y-%m-%d")
 
         state = read_json("leetcode_state")
-        persistent_solved = set(state.get("solved", []))
+        persistent = set(state.get("solved", []))
         api_solved = await get_already_solved()
-        all_solved = persistent_solved | api_solved
-        log(f"Solved: {len(all_solved)} total | Streak: {progress.get('streak', 0)} days")
+        all_solved = persistent | api_solved
+        log(f"Solved: {len(all_solved)} | Streak: {progress.get('streak', 0)} days")
 
-        # Fetch free problems only (isPaidOnly filtered in get_problems)
-        easy = await get_problems("EASY", 100)
+        easy   = await get_problems("EASY",   100)
         medium = await get_problems("MEDIUM", 100)
-        hard = await get_problems("HARD", 50)
-        all_problems = easy + medium + hard
+        hard   = await get_problems("HARD",    50)
 
+        # Build queue: skip already solved, skip today's daily (avoid repeated WA)
+        # Prioritize Easy > Medium > Hard to maximize acceptance rate
+        attempted_daily = state.get("last_daily_date", "") == today
         queue = []
-        last_daily = state.get("last_daily_date", "")
-        if daily_slug and last_daily != today and daily_slug not in all_solved:
-            daily_detail = await get_problem_detail(daily_slug)
-            if daily_detail and daily_detail.get("questionId") and not daily_detail.get("isPaidOnly"):
-                queue.append(daily_detail)
-                log(f"Daily: {daily_detail.get('title')}")
+        if daily_slug and not attempted_daily and daily_slug not in all_solved:
+            d = await get_problem_detail(daily_slug)
+            if d and d.get("questionId") and not d.get("isPaidOnly"):
+                queue.append(d)
+                log(f"Daily: {d.get('title')}")
 
-        unsolved = [p for p in all_problems if p["titleSlug"] not in all_solved and p["titleSlug"] != daily_slug]
+        unsolved = [p for p in (easy + medium + hard)
+                    if p["titleSlug"] not in all_solved and p["titleSlug"] != daily_slug]
         random.shuffle(unsolved)
-        queue += [p for p in unsolved if p["difficulty"] == "Easy"]
-        queue += [p for p in unsolved if p["difficulty"] == "Medium"]
-        # Hard problems last - deprioritized due to TLE risk
-        queue += [p for p in unsolved if p["difficulty"] == "Hard"]
+        # Only python3-compatible problems (skip SQL/shell - they 403 more on server IPs)
+        for p in unsolved:
+            if len(queue) >= num_problems * 4:
+                break
+            queue.append(p)
 
-        log(f"Queue: {len(queue)} free unsolved, targeting {num_problems} accepted")
+        log(f"Queue: {len(queue)} problems, targeting {num_problems} accepted")
 
         submitted = 0
-        attempted = 0
-        max_attempts = num_problems * 4
         newly_solved = set()
-        consecutive_errors = 0
 
         for problem in queue:
             if submitted >= num_problems:
                 break
-            if attempted >= max_attempts:
-                log(f"Reached max attempts, got {submitted}/{num_problems}")
-                break
 
-            attempted += 1
+            slug = problem.get("titleSlug", "")
+            if not slug:
+                continue
+
             try:
-                slug = problem.get("titleSlug")
-                if not slug:
-                    continue
-
                 detail = problem if problem.get("questionId") else await get_problem_detail(slug)
                 if not detail or not detail.get("questionId"):
                     continue
-
-                # Skip premium problems
-                if detail.get("isPaidOnly") or not detail.get("codeSnippets"):
+                if detail.get("isPaidOnly"):
                     log(f"Skipping premium: {detail.get('title', slug)}")
                     continue
 
-                if submitted > 0:
-                    delay = random.randint(90, 150)
-                    log(f"Waiting {delay}s...")
-                    await asyncio.sleep(delay)
-                else:
-                    # First submission - small warmup delay
-                    await asyncio.sleep(random.randint(5, 15))
-
                 snippets = detail.get("codeSnippets") or []
                 available = [s["langSlug"] for s in snippets]
-                if "mysql" in available and "python3" not in available:
-                    lang = "mysql"
-                elif "bash" in available and "python3" not in available:
-                    lang = "bash"
-                else:
-                    lang = "python3"
 
-                success = False
-                code = generate_human_like_solution(detail, lang)
-                if not code or len(code) < 10:
-                    log(f"Empty code for {detail.get('title')}, skipping")
+                # Skip problems with no python3 — SQL/shell 403 harder from server
+                if "python3" not in available:
+                    log(f"Skipping non-python: {detail.get('title', slug)}")
                     continue
-                result = await submit_solution(slug, detail["questionId"], code, lang)
+
+                lang = "python3"
+
+                # Wait between submissions
+                if submitted > 0:
+                    wait = random.randint(90, 150)
+                    log(f"Waiting {wait}s...")
+                    await asyncio.sleep(wait)
+                else:
+                    await asyncio.sleep(random.randint(5, 10))
+
+                code = solve(detail, lang)
+                if not code or len(code) < 10:
+                    log(f"Empty solution for {detail.get('title')}, skipping")
+                    continue
+
+                # Submit
+                r = await _proxy("POST", f"https://leetcode.com/problems/{slug}/submit/",
+                    {"lang": lang, "question_id": detail["questionId"], "typed_code": code})
+
+                if r.status_code == 403:
+                    log(f"403 on {detail.get('title')} — rate limited, waiting 3min", "error")
+                    await asyncio.sleep(180)
+                    continue
+                if not r.text.strip() or r.status_code not in (200, 201):
+                    log(f"Bad response {r.status_code} for {detail.get('title')}", "error")
+                    continue
+
+                result = r.json()
                 submission_id = result.get("submission_id")
                 if not submission_id:
                     log(f"No submission_id for {detail.get('title')}: {str(result)[:80]}")
                     continue
 
-                status = await check_result(submission_id)
-                log(f"({submitted+1}/{num_problems}) {detail.get('title')} ({detail.get('difficulty')}) [{lang}] -> {status}")
+                # Poll result
+                status = "Timeout"
+                async with httpx.AsyncClient(timeout=60) as client:
+                    for _ in range(20):
+                        await asyncio.sleep(3)
+                        try:
+                            check_r = await _proxy("GET", f"https://leetcode.com/submissions/detail/{submission_id}/check/")
+                            if check_r.status_code != 200:
+                                continue
+                            data = check_r.json()
+                            s = data.get("state", "")
+                            if s == "SUCCESS":
+                                status = data.get("status_msg", "Unknown")
+                                break
+                            if s in ("PENDING", "STARTED"):
+                                continue
+                            status = s or "Unknown"
+                            break
+                        except Exception:
+                            continue
+
+                log(f"({submitted+1}/{num_problems}) {detail.get('title')} [{detail.get('difficulty')}] -> {status}")
 
                 if status == "Accepted":
                     submitted += 1
-                    success = True
                     newly_solved.add(slug)
-                    consecutive_errors = 0
                     if slug == daily_slug:
                         state["last_daily_date"] = today
                 else:
-                    log(f"Got {status} on {detail.get('title')} — moving to next problem")
-                    # Mark daily as attempted so it doesn't block every run
+                    # Mark daily as attempted regardless of result
                     if slug == daily_slug:
                         state["last_daily_date"] = today
+                    # Cooldown after non-accepted to avoid next 403
                     await asyncio.sleep(random.randint(60, 90))
 
-                if not success:
-                    log(f"Skipping {detail.get('title')}")
-
             except Exception as e:
-                err = str(e)
-                log(f"Error on {problem.get('title', problem.get('titleSlug', ''))}: {err}", "error")
-                if "session" in err.lower() or "403" in err or "redirect" in err.lower() or "empty" in err.lower():
-                    consecutive_errors += 1
-                    if consecutive_errors >= 3:
-                        log("3 consecutive session errors — stopping run. Update LEETCODE_SESSION on Render.", "error")
-                        break
-                    log(f"Session error, waiting 3 minutes before retrying...", "error")
-                    await asyncio.sleep(180)
-                else:
-                    consecutive_errors = 0
+                log(f"Error on {slug}: {e}", "error")
+                await asyncio.sleep(30)
                 continue
 
         if newly_solved:
-            state["solved"] = list(persistent_solved | api_solved | newly_solved)
+            state["solved"] = list(persistent | api_solved | newly_solved)
             write_json("leetcode_state", state)
-            log(f"Saved {len(newly_solved)} new solved (total: {len(state['solved'])})")
+            log(f"Saved {len(newly_solved)} new (total: {len(state['solved'])})")
+        elif state.get("last_daily_date") == today:
+            write_json("leetcode_state", state)
 
-        log(f"Session done: {submitted}/{num_problems} accepted")
+        log(f"Done: {submitted}/{num_problems} accepted")
         badges = await get_badges()
-        log(f"Badges: {len(badges.get('earned', []))} earned | Upcoming: {[b['name'] for b in badges.get('upcoming', [])]}")
+        log(f"Badges: {len(badges.get('earned',[]))} earned | Upcoming: {[b['name'] for b in badges.get('upcoming',[])]}")
 
     except Exception as e:
         log(f"LeetCode run failed: {e}", "error")

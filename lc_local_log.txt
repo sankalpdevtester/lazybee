@@ -1,0 +1,1 @@
+[10:30:03] ERROR: Set GROQ_API_KEY in this script
