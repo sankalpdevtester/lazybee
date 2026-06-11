@@ -303,8 +303,11 @@ async def run_daily_leetcode(num_problems: int = 5):
                     if slug == daily_slug:
                         state["last_daily_date"] = today
                 else:
-                    # Wrong Answer / TLE / Runtime Error — move on, don't retry same problem
                     log(f"Got {status} on {detail.get('title')} — moving to next problem")
+                    # Mark daily as attempted so it doesn't block every run
+                    if slug == daily_slug:
+                        state["last_daily_date"] = today
+                    await asyncio.sleep(random.randint(60, 90))
 
                 if not success:
                     log(f"Skipping {detail.get('title')}")
