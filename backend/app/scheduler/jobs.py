@@ -354,8 +354,8 @@ def start_scheduler():
     scheduler.add_job(run_daily_automation, CronTrigger(hour=hour, minute=minute), id="daily_automation", replace_existing=True)
     hour2 = (hour + 12) % 24
     scheduler.add_job(run_12h_automation, CronTrigger(hour=hour2, minute=minute), id="12h_automation", replace_existing=True)
-    # LeetCode 6x daily at random IST times to hit 26 problems/day
-    ist_lc_hours = sorted(random.sample(range(7, 24), 6))
+    # LeetCode 4x daily at random IST times
+    ist_lc_hours = sorted(random.sample(range(7, 24), 4))
     for i, ist_lc in enumerate(ist_lc_hours):
         lc_minute = random.randint(0, 59)
         scheduler.add_job(_run_leetcode, CronTrigger(hour=_ist_to_utc(ist_lc), minute=lc_minute), id=f"leetcode_{i}", replace_existing=True)
@@ -369,7 +369,7 @@ def start_scheduler():
 def _run_leetcode():
     import asyncio
     from app.services.leetcode_auto import run_daily_leetcode
-    asyncio.run(run_daily_leetcode(5))
+    asyncio.run(run_daily_leetcode(10))
 
 def _run_linkedin():
     import asyncio
