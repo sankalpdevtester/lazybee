@@ -50,12 +50,17 @@ async def _gql(query: str, variables: dict = {}) -> dict:
 
 async def get_all_problems(skip: int = 0, limit: int = 500) -> list:
     """Fetch a batch of problems from LeetCode."""
-    data = await _gql("""query($skip:Int,$limit:Int){
-      problemsetQuestionList:questionList(categorySlug:"" limit:$limit skip:$skip filters:{}){
-        total questions:data{titleSlug title difficulty isPaidOnly}}}""",
-        {"skip": skip, "limit": limit})
-    q = data.get("data", {}).get("problemsetQuestionList", {})
-    return q.get("questions", []), q.get("total", 0)
+    data = await _gql("""
+    query($skip:Int,$limit:Int){
+      problemsetQuestionList:questionList(
+        categorySlug:"" limit:$limit skip:$skip filters:{}
+      ){
+        total
+        questions:data{titleSlug title difficulty isPaidOnly}
+      }
+    }""", {"skip": skip, "limit": limit})
+    ql = data.get("data", {}).get("problemsetQuestionList", {})
+    return ql.get("questions") or [], ql.get("total", 0)
 
 async def get_all_free_problems() -> list:
     """Fetch ALL free python-solvable problems from LeetCode (up to 4000)."""
