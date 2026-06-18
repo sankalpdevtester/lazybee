@@ -199,8 +199,26 @@ def commit_file(token: str, repo_name: str, file_path: str, content: str, messag
     g = _github(token)
     user = g.get_user()
     repo = user.get_repo(repo_name)
-    try:
-        existing = repo.get_contents(file_path)
-        repo.update_file(file_path, message, content, existing.sha)
-    except GithubException:
-        repo.create_file(file_path, message, content)
+    for attempt in range(3):
+        try:
+            try:
+                existing = repo.get_contents(file_path)
+                repo.update_file(file_path, message, content, existing.sha)
+            except GithubException as e:
+                if e.status == 404:
+                    repo.create_file(file_path, message, content)
+                elif e.status in (409, 422):
+                    # SHA conflict - fetch fresh SHA and retry
+                    if attempt < 2:
+                        import time
+                        time.sleep(2)
+                        continue
+                    raise
+                else:
+                    raise
+            return
+        except GithubException as e:
+            if attempt == 2:
+                raise
+            import time
+            time.sleep(2)
