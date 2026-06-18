@@ -6,6 +6,39 @@ import os
 
 router = APIRouter()
 
+@router.post("/update-session", dependencies=[Depends(require_auth)])
+def update_session(body: dict):
+    """Update LEETCODE_SESSION and CSRF without going to Render dashboard."""
+    from app.services.leetcode_auto import _update_render_session
+    session = body.get("session", "").strip()
+    csrf = body.get("csrf", "").strip()
+    if session:
+        _update_render_session(session)
+    if csrf:
+        os.environ["LEETCODE_CSRF"] = csrf
+        render_api_key = os.getenv("RENDER_API_KEY", "").strip()
+        service_id = os.getenv("RENDER_SERVICE_ID", "").strip()
+        if render_api_key and service_id:
+            try:
+                import httpx as _httpx
+                r = _httpx.get(f"https://api.render.com/v1/services/{service_id}/env-vars",
+                    headers={"Authorization": f"Bearer {render_api_key}", "Accept": "application/json"}, timeout=10)
+                if r.status_code == 200:
+                    env_vars = r.json()
+                    updated = []
+                    for ev in env_vars:
+                        key = ev.get("envVar", {}).get("key", "")
+                        val = ev.get("envVar", {}).get("value", "")
+                        if key == "LEETCODE_CSRF": val = csrf
+                        if key == "LEETCODE_SESSION" and session: val = session
+                        updated.append({"key": key, "value": val})
+                    _httpx.put(f"https://api.render.com/v1/services/{service_id}/env-vars",
+                        headers={"Authorization": f"Bearer {render_api_key}", "Content-Type": "application/json"},
+                        json=updated, timeout=10)
+            except Exception:
+                pass
+    return {"message": "Session updated successfully"}
+
 @router.get("/status", dependencies=[Depends(require_auth)])
 def leetcode_status():
     session_ok = bool(os.getenv("LEETCODE_SESSION", "").strip())

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ExternalLink, RefreshCw, Trophy, Flame, Calendar, Award, Lock } from 'lucide-react'
+import { ExternalLink, RefreshCw, Trophy, Flame, Calendar, Award, Lock, Key, Loader } from 'lucide-react'
 import api from '../lib/api'
 
 export default function Leetcode() {
@@ -8,6 +8,27 @@ export default function Leetcode() {
   const [problems, setProblems] = useState<any[]>([])
   const [badges, setBadges] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [session, setSession] = useState('')
+  const [csrf, setCsrf] = useState('')
+  const [updating, setUpdating] = useState(false)
+  const [updateMsg, setUpdateMsg] = useState('')
+  const [showSessionForm, setShowSessionForm] = useState(false)
+
+  const updateSession = async () => {
+    if (!session && !csrf) return
+    setUpdating(true)
+    setUpdateMsg('')
+    try {
+      const { data } = await api.post('/leetcode/update-session', { session, csrf })
+      setUpdateMsg(data.message)
+      setSession('')
+      setCsrf('')
+      setShowSessionForm(false)
+    } catch {
+      setUpdateMsg('Failed to update session.')
+    }
+    setUpdating(false)
+  }
 
   const load = async () => {
     setLoading(true)
@@ -43,6 +64,10 @@ export default function Leetcode() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-white">LeetCode</h1>
         <div className="flex items-center gap-2">
+          <button onClick={() => setShowSessionForm(s => !s)}
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white border border-bee-border px-3 py-1.5 rounded-lg transition-colors">
+            <Key size={12} /> Update Session
+          </button>
           <button onClick={seedSolved} className="text-xs text-gray-400 hover:text-white border border-bee-border px-3 py-1.5 rounded-lg transition-colors">
             Sync Solved
           </button>
@@ -51,6 +76,28 @@ export default function Leetcode() {
           </button>
         </div>
       </div>
+
+      {/* Session update form */}
+      {showSessionForm && (
+        <div className="bg-bee-card border border-bee-border rounded-xl p-5 space-y-3">
+          <p className="text-sm font-semibold text-white flex items-center gap-2"><Key size={14} className="text-orange-400" /> Update LeetCode Session</p>
+          <p className="text-xs text-gray-500">Get these from leetcode.com → F12 → Network → any request → Response Headers → set-cookie</p>
+          <div className="space-y-2">
+            <input value={session} onChange={e => setSession(e.target.value)}
+              placeholder="LEETCODE_SESSION value (the long JWT token)"
+              className="w-full px-3 py-2 text-xs bg-bee-dark border border-bee-border rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-orange-500" />
+            <input value={csrf} onChange={e => setCsrf(e.target.value)}
+              placeholder="csrftoken value (short string)"
+              className="w-full px-3 py-2 text-xs bg-bee-dark border border-bee-border rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-orange-500" />
+          </div>
+          {updateMsg && <p className="text-xs text-green-400">{updateMsg}</p>}
+          <button onClick={updateSession} disabled={updating || (!session && !csrf)}
+            className="flex items-center gap-2 bg-orange-600 text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-40 transition-colors">
+            {updating ? <Loader size={12} className="animate-spin" /> : <Key size={12} />}
+            {updating ? 'Updating...' : 'Update Session'}
+          </button>
+        </div>
+      )}
 
       {/* Profile stats */}
       {profile && !profile.error && (

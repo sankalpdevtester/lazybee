@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useState } from 'react';
-import { ExternalLink, RefreshCw, Trophy, Flame, Calendar, Award, Lock } from 'lucide-react';
+import { ExternalLink, RefreshCw, Trophy, Flame, Calendar, Award, Lock, Key, Loader } from 'lucide-react';
 import api from '../lib/api';
 export default function Leetcode() {
     const [profile, setProfile] = useState(null);
@@ -8,6 +8,28 @@ export default function Leetcode() {
     const [problems, setProblems] = useState([]);
     const [badges, setBadges] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [session, setSession] = useState('');
+    const [csrf, setCsrf] = useState('');
+    const [updating, setUpdating] = useState(false);
+    const [updateMsg, setUpdateMsg] = useState('');
+    const [showSessionForm, setShowSessionForm] = useState(false);
+    const updateSession = async () => {
+        if (!session && !csrf)
+            return;
+        setUpdating(true);
+        setUpdateMsg('');
+        try {
+            const { data } = await api.post('/leetcode/update-session', { session, csrf });
+            setUpdateMsg(data.message);
+            setSession('');
+            setCsrf('');
+            setShowSessionForm(false);
+        }
+        catch {
+            setUpdateMsg('Failed to update session.');
+        }
+        setUpdating(false);
+    };
     const load = async () => {
         setLoading(true);
         const [p, d, pr, b] = await Promise.all([
@@ -32,7 +54,7 @@ export default function Leetcode() {
             'bg-red-900/50 text-red-400';
     if (loading)
         return _jsx("div", { className: "flex items-center justify-center h-full text-bee-yellow", children: "Loading..." });
-    return (_jsxs("div", { className: "space-y-6 max-w-3xl", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("h1", { className: "text-xl font-bold text-white", children: "LeetCode" }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("button", { onClick: seedSolved, className: "text-xs text-gray-400 hover:text-white border border-bee-border px-3 py-1.5 rounded-lg transition-colors", children: "Sync Solved" }), _jsxs("button", { onClick: load, className: "flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors", children: [_jsx(RefreshCw, { size: 14 }), " Refresh"] })] })] }), profile && !profile.error && (_jsxs("div", { className: "bg-bee-card border border-bee-border rounded-xl p-5 space-y-4", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("div", { children: [_jsxs("p", { className: "text-white font-bold", children: ["@", profile.username] }), _jsxs("p", { className: "text-gray-500 text-xs", children: ["Rank #", profile.ranking?.toLocaleString()] })] }), _jsxs("a", { href: profile.profile_url, target: "_blank", rel: "noreferrer", className: "flex items-center gap-1.5 border border-bee-border text-xs text-gray-300 hover:border-gray-400 px-3 py-1.5 rounded-lg transition-colors", children: ["View Profile ", _jsx(ExternalLink, { size: 11 })] })] }), _jsx("div", { className: "grid grid-cols-4 gap-3", children: [
+    return (_jsxs("div", { className: "space-y-6 max-w-3xl", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("h1", { className: "text-xl font-bold text-white", children: "LeetCode" }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsxs("button", { onClick: () => setShowSessionForm(s => !s), className: "flex items-center gap-1.5 text-xs text-gray-400 hover:text-white border border-bee-border px-3 py-1.5 rounded-lg transition-colors", children: [_jsx(Key, { size: 12 }), " Update Session"] }), _jsx("button", { onClick: seedSolved, className: "text-xs text-gray-400 hover:text-white border border-bee-border px-3 py-1.5 rounded-lg transition-colors", children: "Sync Solved" }), _jsxs("button", { onClick: load, className: "flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors", children: [_jsx(RefreshCw, { size: 14 }), " Refresh"] })] })] }), showSessionForm && (_jsxs("div", { className: "bg-bee-card border border-bee-border rounded-xl p-5 space-y-3", children: [_jsxs("p", { className: "text-sm font-semibold text-white flex items-center gap-2", children: [_jsx(Key, { size: 14, className: "text-orange-400" }), " Update LeetCode Session"] }), _jsx("p", { className: "text-xs text-gray-500", children: "Get these from leetcode.com \u2192 F12 \u2192 Network \u2192 any request \u2192 Response Headers \u2192 set-cookie" }), _jsxs("div", { className: "space-y-2", children: [_jsx("input", { value: session, onChange: e => setSession(e.target.value), placeholder: "LEETCODE_SESSION value (the long JWT token)", className: "w-full px-3 py-2 text-xs bg-bee-dark border border-bee-border rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-orange-500" }), _jsx("input", { value: csrf, onChange: e => setCsrf(e.target.value), placeholder: "csrftoken value (short string)", className: "w-full px-3 py-2 text-xs bg-bee-dark border border-bee-border rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-orange-500" })] }), updateMsg && _jsx("p", { className: "text-xs text-green-400", children: updateMsg }), _jsxs("button", { onClick: updateSession, disabled: updating || (!session && !csrf), className: "flex items-center gap-2 bg-orange-600 text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-40 transition-colors", children: [updating ? _jsx(Loader, { size: 12, className: "animate-spin" }) : _jsx(Key, { size: 12 }), updating ? 'Updating...' : 'Update Session'] })] })), profile && !profile.error && (_jsxs("div", { className: "bg-bee-card border border-bee-border rounded-xl p-5 space-y-4", children: [_jsxs("div", { className: "flex items-center justify-between", children: [_jsxs("div", { children: [_jsxs("p", { className: "text-white font-bold", children: ["@", profile.username] }), _jsxs("p", { className: "text-gray-500 text-xs", children: ["Rank #", profile.ranking?.toLocaleString()] })] }), _jsxs("a", { href: profile.profile_url, target: "_blank", rel: "noreferrer", className: "flex items-center gap-1.5 border border-bee-border text-xs text-gray-300 hover:border-gray-400 px-3 py-1.5 rounded-lg transition-colors", children: ["View Profile ", _jsx(ExternalLink, { size: 11 })] })] }), _jsx("div", { className: "grid grid-cols-4 gap-3", children: [
                             { label: 'Total', value: profile.solved?.all, total: null, color: 'text-white' },
                             { label: 'Easy', value: profile.solved?.easy, total: profile.total?.easy, color: 'text-green-400' },
                             { label: 'Medium', value: profile.solved?.medium, total: profile.total?.medium, color: 'text-yellow-400' },

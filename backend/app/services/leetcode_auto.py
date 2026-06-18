@@ -23,14 +23,64 @@ async def _proxy(method: str, url: str, json_body=None) -> httpx.Response:
     proxy_secret = os.getenv("LEETCODE_PROXY_SECRET", "").strip()
     async with httpx.AsyncClient(timeout=30) as client:
         if proxy_url and proxy_secret:
-            return await client.post(
+            r = await client.post(
                 proxy_url,
                 json={"url": url, "method": method, "headers": _headers(), "data": json_body},
                 headers={"X-Proxy-Secret": proxy_secret, "Content-Type": "application/json"},
             )
-        if method == "GET":
-            return await client.get(url, headers=_headers())
-        return await client.post(url, json=json_body, headers=_headers())
+        elif method == "GET":
+            r = await client.get(url, headers=_headers())
+        else:
+            r = await client.post(url, json=json_body, headers=_headers())
+
+        # Auto-refresh session if LeetCode returns a new cookie
+        new_session = None
+        set_cookie = r.headers.get("set-cookie", "")
+        if "LEETCODE_SESSION=" in set_cookie:
+            import re as _re
+            m = _re.search(r'LEETCODE_SESSION=([^;]+)', set_cookie)
+            if m:
+                new_session = m.group(1)
+        if new_session and new_session != os.getenv("LEETCODE_SESSION", ""):
+            _update_render_session(new_session)
+        return r
+
+def _update_render_session(new_session: str):
+    """Update LEETCODE_SESSION on Render via API so it auto-refreshes."""
+    render_api_key = os.getenv("RENDER_API_KEY", "").strip()
+    service_id = os.getenv("RENDER_SERVICE_ID", "").strip()
+    if not render_api_key or not service_id:
+        # Fallback: just update in-process env so current run uses it
+        os.environ["LEETCODE_SESSION"] = new_session
+        return
+    try:
+        import httpx as _httpx
+        # Get current env vars
+        r = _httpx.get(
+            f"https://api.render.com/v1/services/{service_id}/env-vars",
+            headers={"Authorization": f"Bearer {render_api_key}", "Accept": "application/json"},
+            timeout=10
+        )
+        if r.status_code != 200:
+            os.environ["LEETCODE_SESSION"] = new_session
+            return
+        env_vars = r.json()
+        # Find and update LEETCODE_SESSION
+        updated = []
+        for ev in env_vars:
+            if ev.get("envVar", {}).get("key") == "LEETCODE_SESSION":
+                updated.append({"key": "LEETCODE_SESSION", "value": new_session})
+            else:
+                updated.append({"key": ev["envVar"]["key"], "value": ev["envVar"]["value"]})
+        _httpx.put(
+            f"https://api.render.com/v1/services/{service_id}/env-vars",
+            headers={"Authorization": f"Bearer {render_api_key}", "Accept": "application/json", "Content-Type": "application/json"},
+            json=updated,
+            timeout=10
+        )
+        os.environ["LEETCODE_SESSION"] = new_session
+    except Exception:
+        os.environ["LEETCODE_SESSION"] = new_session
 
 async def _gql(query: str, variables: dict = {}) -> dict:
     r = await _proxy("POST", LEETCODE_GQL, {"query": query, "variables": variables})
@@ -176,13 +226,13 @@ async def run_daily_leetcode(num_problems: int = 5):
 
                 lang = "python3"
 
-                # Wait between submissions
+                # Wait between submissions - longer to avoid rate limiting
                 if submitted > 0:
-                    wait = random.randint(90, 150)
+                    wait = random.randint(120, 180)
                     log(f"Waiting {wait}s...")
                     await asyncio.sleep(wait)
                 else:
-                    await asyncio.sleep(random.randint(5, 10))
+                    await asyncio.sleep(random.randint(10, 20))
 
                 code = solve(detail, lang)
                 if not code or len(code) < 10:
