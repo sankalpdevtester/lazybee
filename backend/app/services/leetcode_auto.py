@@ -129,34 +129,57 @@ def _clean_code(code: str) -> str:
     code = re.sub(r'\n?```$', '', code)
     return code.strip()
 
-def solve(problem: dict, lang: str, attempt: int = 1, prev_status: str = "") -> str:
+async def get_problem_content(slug: str) -> str:
+    """Fetch full problem statement HTML/text for better AI solving."""
+    data = await _gql("""query($s:String!){question(titleSlug:$s){content}}""", {"s": slug})
+    content = data.get("data", {}).get("question", {}).get("content", "") or ""
+    # Strip HTML tags for cleaner prompt
+    content = re.sub(r'<[^>]+>', ' ', content)
+    content = re.sub(r'\s+', ' ', content).strip()
+    return content[:2000]
+
+def solve(problem: dict, lang: str, attempt: int = 1, prev_status: str = "", content: str = "") -> str:
     title = problem.get("title", "")
-    content = (problem.get("content", "") or "")[:1200]
     snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
+    # Use fetched content if available, else fall back to stored content
+    problem_text = content or (problem.get("content", "") or "")
+    problem_text = re.sub(r'<[^>]+>', ' ', problem_text)
+    problem_text = re.sub(r'\s+', ' ', problem_text).strip()[:2000]
 
     retry_note = ""
     if attempt == 2:
-        retry_note = f"\nIMPORTANT: A previous attempt got '{prev_status}'. Think step-by-step about edge cases and reconsider your algorithm entirely. Do NOT repeat the same approach.\n"
+        retry_note = f"\nPREVIOUS ATTEMPT STATUS: '{prev_status}'. You MUST use a completely different, more efficient algorithm. If you got TLE, your solution is too slow — use O(n log n) or better. If WA, your logic is wrong — rethink from scratch.\n"
     elif attempt >= 3:
-        retry_note = f"\nIMPORTANT: Two previous attempts failed with '{prev_status}'. This is your final attempt. Use a well-known textbook algorithm that is proven correct. Prioritize correctness over cleverness.\n"
+        retry_note = f"\nFINAL ATTEMPT. Previous attempts all failed with '{prev_status}'. Use the single most well-known optimal algorithm for this exact problem type. No creativity — use the textbook solution.\n"
 
-    code = _ask(f"""Solve this LeetCode {difficulty} problem in {lang}. The solution MUST be 100% correct and pass ALL test cases.
-{retry_note}
+    # Specific algorithm hints by problem type to avoid TLE
+    algo_hint = ""
+    title_lower = title.lower()
+    if "sudoku" in title_lower:
+        algo_hint = "\nFor Sudoku Solver: use backtracking with constraint propagation. Pre-compute possible values for each empty cell. Only iterate over cells with fewest possibilities first (MRV heuristic).\n"
+    elif "palindrome" in title_lower and "product" in title_lower:
+        algo_hint = "\nFor Largest Palindrome Product: search from largest n-digit numbers downward, check if product of two n-digit numbers is palindrome using string reversal check.\n"
+    elif "permut" in title_lower:
+        algo_hint = "\nUse itertools.permutations or standard backtracking.\n"
+    elif "substring" in title_lower or "subarray" in title_lower:
+        algo_hint = "\nUse sliding window or dynamic programming.\n"
+
+    code = _ask(f"""Solve this LeetCode {difficulty} problem in Python3. Solution MUST pass ALL test cases within time limits.
+{retry_note}{algo_hint}
 Problem: {title}
-{content}
+{problem_text}
 
-Starting code:
+Starter code:
 {snippet}
 
-Rules:
-- Return ONLY raw code, no markdown, no explanation, no comments
-- Use the most efficient CORRECT algorithm — think carefully about correctness first
-- Handle ALL edge cases: empty input, single element, duplicates, negatives, maximum constraints
-- For Hard problems use proven optimal algorithms (e.g. DP with memoization, two pointers, binary search, segment tree, BFS/DFS, merge sort)
-- Do NOT redefine TreeNode, ListNode or any class already provided
-- Every line of code must be correct Python3 syntax
-- The code must produce the correct output for every possible input""")
+STRICT RULES:
+- Return ONLY raw Python3 code — no markdown fences, no explanation, no comments
+- Time complexity MUST be optimal — O(n²) or worse will get TLE on Hard problems
+- Handle ALL edge cases
+- Do NOT redefine TreeNode, ListNode, or any provided class
+- Use built-in Python optimizations (lru_cache, functools, collections) when helpful
+- Every line must be valid Python3 syntax""")
     return _clean_code(code)
 
 async def run_daily_leetcode(num_problems: int = 10):
@@ -192,8 +215,8 @@ async def run_daily_leetcode(num_problems: int = 10):
         medium = await get_problems("MEDIUM", 500)
         hard   = await get_problems("HARD",   200)
 
-        # Build queue: skip already solved, skip today's daily (avoid repeated WA)
-        # Prioritize Easy > Medium > Hard to maximize acceptance rate
+        # Build queue: Easy first, then Medium, Hard last
+        # This maximizes accepted count and avoids TLE loops on Hard
         attempted_daily = state.get("last_daily_date", "") == today
         queue = []
         if daily_slug and not attempted_daily and daily_slug not in all_solved:
@@ -202,10 +225,16 @@ async def run_daily_leetcode(num_problems: int = 10):
                 queue.append(d)
                 log(f"Daily: {d.get('title')}")
 
-        unsolved = [p for p in (easy + medium + hard)
-                    if p["titleSlug"] not in all_solved and p["titleSlug"] != daily_slug]
-        random.shuffle(unsolved)
-        queue += unsolved  # use ALL unsolved, no cap
+        easy_unsolved   = [p for p in easy   if p["titleSlug"] not in all_solved and p["titleSlug"] != daily_slug]
+        medium_unsolved = [p for p in medium if p["titleSlug"] not in all_solved and p["titleSlug"] != daily_slug]
+        hard_unsolved   = [p for p in hard   if p["titleSlug"] not in all_solved and p["titleSlug"] != daily_slug]
+
+        random.shuffle(easy_unsolved)
+        random.shuffle(medium_unsolved)
+        random.shuffle(hard_unsolved)
+
+        # Order: Easy → Medium → Hard (Hard only attempted if we still need more)
+        queue += easy_unsolved + medium_unsolved + hard_unsolved
 
         log(f"Queue: {len(queue)} problems, targeting {num_problems} accepted")
 
@@ -238,7 +267,10 @@ async def run_daily_leetcode(num_problems: int = 10):
 
                 lang = "python3"
 
-                # Wait between submissions - longer to avoid rate limiting
+                # Fetch full problem content for better AI solving
+                full_content = await get_problem_content(slug)
+
+                # Wait between submissions
                 if submitted > 0:
                     wait = random.randint(180, 240)
                     log(f"Waiting {wait}s...")
@@ -250,7 +282,7 @@ async def run_daily_leetcode(num_problems: int = 10):
                 accepted = False
                 last_status = ""
                 for attempt in range(1, 4):
-                    code = solve(detail, lang, attempt=attempt, prev_status=last_status)
+                    code = solve(detail, lang, attempt=attempt, prev_status=last_status, content=full_content)
                     if not code or len(code) < 10:
                         log(f"Empty solution attempt {attempt} for {detail.get('title')}, skipping")
                         break

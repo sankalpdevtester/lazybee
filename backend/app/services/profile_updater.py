@@ -29,15 +29,14 @@ def _download_avatar() -> bytes | None:
         return None
 
 
-def _update_github_profile(g: Github):
+def _update_github_profile(token: str) -> bool:
     """Update name, bio, location via REST PATCH /user."""
     try:
-        import httpx, os
-        token = os.getenv("SANKALPDEVTESTER_TOKEN", "")
+        import httpx
         resp = httpx.patch(
             "https://api.github.com/user",
             headers={
-                "Authorization": f"Bearer {token}",
+                "Authorization": f"token {token}",
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
@@ -47,7 +46,7 @@ def _update_github_profile(g: Github):
                 "location": PROFILE_LOCATION,
                 "blog": PROFILE_BLOG,
             },
-            timeout=10,
+            timeout=15,
         )
         return resp.status_code == 200
     except Exception:
@@ -245,7 +244,7 @@ def update_profile_readme():
         user = g.get_user()
 
         # --- Update profile metadata (name, bio, location) ---
-        if _update_github_profile(g):
+        if _update_github_profile(token):
             log("Profile metadata updated (name, bio, location)")
         else:
             log("Profile metadata update failed (non-fatal)", "error")
@@ -290,18 +289,22 @@ def update_profile_readme():
         readme_content = generate_profile_readme(stats)
 
         # --- Create or update profile repo ---
+        # IMPORTANT: repo name MUST exactly match username for GitHub to use it as profile README
         try:
             profile_repo = user.get_repo("sankalpdevtester")
         except GithubException:
+            # Create without auto_init so we control the first commit
             profile_repo = user.create_repo(
                 "sankalpdevtester",
                 description="⚡ Sankalp Gupta — Full Stack Developer",
                 private=False,
-                auto_init=True,
+                auto_init=False,
             )
             log("Created profile repo sankalpdevtester/sankalpdevtester")
+            # Small wait for GitHub to register the repo
+            import time; time.sleep(3)
 
-        # Push README
+        # Push README — create if doesn't exist, update if it does
         try:
             existing = profile_repo.get_contents("README.md")
             profile_repo.update_file(
@@ -317,7 +320,7 @@ def update_profile_readme():
                 "feat: add animated profile README",
                 readme_content,
             )
-            log("README.md created")
+            log("README.md created — profile page now decorated")
 
         log(f"Profile done — {lc_solved} LC | {display_stars} stars shown | {total_repos} repos")
 
