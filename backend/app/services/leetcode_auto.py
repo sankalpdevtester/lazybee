@@ -126,7 +126,7 @@ def solve(problem: dict, lang: str) -> str:
     content = (problem.get("content", "") or "")[:800]
     snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
-    code = _ask(f"""Solve this LeetCode {difficulty} problem in {lang}. Must be 100% correct, pass ALL test cases, no TLE.
+    code = _ask(f"""Solve this LeetCode {difficulty} problem in {lang}. The solution MUST be 100% correct and pass ALL test cases.
 
 Problem: {title}
 {content}
@@ -136,14 +136,16 @@ Starting code:
 
 Rules:
 - Return ONLY raw code, no markdown, no explanation
-- Optimal time complexity
-- Handle all edge cases
-- Do NOT redefine TreeNode, ListNode or any provided class""")
+- Use the most efficient correct algorithm - think carefully before writing
+- Handle ALL edge cases: empty input, single element, duplicates, negatives, max constraints
+- For Hard problems use known optimal algorithms (merge sort for counting inversions, BFS for shortest path, DP for optimization problems)
+- Do NOT redefine TreeNode, ListNode or any provided class
+- The code must produce correct output for every possible input""")
     code = re.sub(r'^```[\w]*\n', '', code.strip())
     code = re.sub(r'\n```$', '', code.strip())
     return code.strip()
 
-async def run_daily_leetcode(num_problems: int = 5):
+async def run_daily_leetcode(num_problems: int = 10):
     from app.storage import append_log, read_json, write_json
     from datetime import datetime
 
@@ -189,11 +191,7 @@ async def run_daily_leetcode(num_problems: int = 5):
         unsolved = [p for p in (easy + medium + hard)
                     if p["titleSlug"] not in all_solved and p["titleSlug"] != daily_slug]
         random.shuffle(unsolved)
-        # Only python3-compatible problems (skip SQL/shell - they 403 more on server IPs)
-        for p in unsolved:
-            if len(queue) >= num_problems * 4:
-                break
-            queue.append(p)
+        queue += unsolved  # use ALL unsolved, no cap
 
         log(f"Queue: {len(queue)} problems, targeting {num_problems} accepted")
 
@@ -228,7 +226,7 @@ async def run_daily_leetcode(num_problems: int = 5):
 
                 # Wait between submissions - longer to avoid rate limiting
                 if submitted > 0:
-                    wait = random.randint(120, 180)
+                    wait = random.randint(180, 240)
                     log(f"Waiting {wait}s...")
                     await asyncio.sleep(wait)
                 else:
@@ -286,10 +284,9 @@ async def run_daily_leetcode(num_problems: int = 5):
                     if slug == daily_slug:
                         state["last_daily_date"] = today
                 else:
-                    # Mark daily as attempted regardless of result
                     if slug == daily_slug:
                         state["last_daily_date"] = today
-                    # Cooldown after non-accepted to avoid next 403
+                    newly_solved.add(slug)  # track attempted so never repeated
                     await asyncio.sleep(random.randint(60, 90))
 
             except Exception as e:
