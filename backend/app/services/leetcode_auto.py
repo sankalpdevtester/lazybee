@@ -8,16 +8,28 @@ from app.services.gemini_service import _ask
 LEETCODE_GQL = "https://leetcode.com/graphql"
 LEETCODE_USERNAME = "q9hZI5XkeT"
 
-def _headers():
+def _headers(slug: str = ""):
+    referer = f"https://leetcode.com/problems/{slug}/description/" if slug else "https://leetcode.com/problems/"
     return {
         "Content-Type": "application/json",
         "Cookie": f"LEETCODE_SESSION={os.getenv('LEETCODE_SESSION','').strip()}; csrftoken={os.getenv('LEETCODE_CSRF','').strip()}",
         "x-csrftoken": os.getenv("LEETCODE_CSRF", "").strip(),
-        "Referer": "https://leetcode.com",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": referer,
+        "Origin": "https://leetcode.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "X-Requested-With": "XMLHttpRequest",
+        "sec-ch-ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
     }
 
-async def _proxy(method: str, url: str, json_body=None) -> httpx.Response:
+async def _proxy(method: str, url: str, json_body=None, slug: str = "") -> httpx.Response:
     """All LeetCode requests go through Cloudflare proxy if set, else direct."""
     proxy_url = os.getenv("LEETCODE_PROXY_URL", "").strip()
     proxy_secret = os.getenv("LEETCODE_PROXY_SECRET", "").strip()
@@ -25,13 +37,13 @@ async def _proxy(method: str, url: str, json_body=None) -> httpx.Response:
         if proxy_url and proxy_secret:
             r = await client.post(
                 proxy_url,
-                json={"url": url, "method": method, "headers": _headers(), "data": json_body},
+                json={"url": url, "method": method, "headers": _headers(slug), "data": json_body},
                 headers={"X-Proxy-Secret": proxy_secret, "Content-Type": "application/json"},
             )
         elif method == "GET":
-            r = await client.get(url, headers=_headers())
+            r = await client.get(url, headers=_headers(slug))
         else:
-            r = await client.post(url, json=json_body, headers=_headers())
+            r = await client.post(url, json=json_body, headers=_headers(slug))
 
         # Auto-refresh session if LeetCode returns a new cookie
         new_session = None
@@ -83,7 +95,7 @@ def _update_render_session(new_session: str):
         os.environ["LEETCODE_SESSION"] = new_session
 
 async def _gql(query: str, variables: dict = {}) -> dict:
-    r = await _proxy("POST", LEETCODE_GQL, {"query": query, "variables": variables})
+    r = await _proxy("POST", LEETCODE_GQL, {"query": query, "variables": variables}, slug="graphql")
     try:
         return r.json()
     except Exception:
@@ -240,6 +252,7 @@ async def run_daily_leetcode(num_problems: int = 10):
 
         submitted = 0
         newly_solved = set()
+        consecutive_403 = 0  # if we hit 3 in a row, cookies are dead — abort
 
         for problem in queue:
             if submitted >= num_problems:
@@ -288,11 +301,16 @@ async def run_daily_leetcode(num_problems: int = 10):
                         break
 
                     r = await _proxy("POST", f"https://leetcode.com/problems/{slug}/submit/",
-                        {"lang": lang, "question_id": detail["questionId"], "typed_code": code})
+                        {"lang": lang, "question_id": detail["questionId"], "typed_code": code},
+                        slug=slug)
 
                     if r.status_code == 403:
-                        log(f"403 on {detail.get('title')} — rate limited, waiting 3min", "error")
-                        await asyncio.sleep(180)
+                        consecutive_403 += 1
+                        log(f"403 on {detail.get('title')} — {'ABORTING: cookies likely expired' if consecutive_403 >= 2 else 'rate limited, waiting 2min'}", "error")
+                        if consecutive_403 >= 2:
+                            log("STOPPING: 2+ consecutive 403s. Update LEETCODE_SESSION + CSRF on Render then click 'Cookies Updated'.", "error")
+                            return
+                        await asyncio.sleep(120)
                         break
                     if not r.text.strip() or r.status_code not in (200, 201):
                         log(f"Bad response {r.status_code} for {detail.get('title')}", "error")
@@ -309,7 +327,7 @@ async def run_daily_leetcode(num_problems: int = 10):
                     for _ in range(20):
                         await asyncio.sleep(3)
                         try:
-                            check_r = await _proxy("GET", f"https://leetcode.com/submissions/detail/{submission_id}/check/")
+                            check_r = await _proxy("GET", f"https://leetcode.com/submissions/detail/{submission_id}/check/", slug=slug)
                             if check_r.status_code != 200:
                                 continue
                             data = check_r.json()
@@ -328,6 +346,7 @@ async def run_daily_leetcode(num_problems: int = 10):
                     log(f"({submitted+1}/{num_problems}) {detail.get('title')} [{detail.get('difficulty')}] attempt {attempt} -> {status}")
 
                     if status == "Accepted":
+                        consecutive_403 = 0  # reset on success
                         accepted = True
                         break
                     # Retry on WA/TLE — wait before re-generating
