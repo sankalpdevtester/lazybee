@@ -87,6 +87,20 @@ def run_leetcode():
     threading.Thread(target=_run, daemon=True).start()
     return {"message": "LeetCode automation triggered. Solving 8 problems. Check logs."}
 
+@router.post("/update-profile", dependencies=[Depends(require_auth)])
+def update_profile():
+    import threading
+    from app.services.profile_updater import update_profile_readme
+    threading.Thread(target=update_profile_readme, daemon=True).start()
+    return {"message": "Profile README update triggered. Check logs."}
+
+@router.post("/star-repos", dependencies=[Depends(require_auth)])
+def star_repos():
+    import threading
+    from app.services.auto_star import star_all_repos
+    threading.Thread(target=star_all_repos, daemon=True).start()
+    return {"message": "Auto-starring repos with all accounts. Check logs."}
+
 @router.post("/backfill-github", dependencies=[Depends(require_auth)])
 def backfill_github():
     """Backfill GitHub contribution graphs for all accounts up to June 7 2026."""

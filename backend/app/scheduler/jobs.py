@@ -364,6 +364,8 @@ def start_scheduler():
     ist_li = random.randint(18, 21)
     li_minute = random.randint(0, 59)
     scheduler.add_job(_run_linkedin, CronTrigger(hour=_ist_to_utc(ist_li), minute=li_minute), id="linkedin_daily", replace_existing=True)
+    # Profile README update daily at midnight IST
+    scheduler.add_job(_run_profile_update, CronTrigger(hour=_ist_to_utc(0), minute=30), id="profile_update", replace_existing=True)
     _log(f"Scheduler started - GitHub IST {ist_hour:02d}:{minute:02d} (UTC {hour:02d}:{minute:02d}), +12h UTC {hour2:02d}:{minute:02d}, LeetCode IST {ist_lc_hours}, LinkedIn IST {ist_li:02d}:{li_minute:02d}")
 
 def _run_leetcode():
@@ -375,3 +377,7 @@ def _run_linkedin():
     import asyncio
     from app.services.linkedin_content import run_linkedin_post
     asyncio.run(run_linkedin_post("daily_update"))
+
+def _run_profile_update():
+    from app.services.profile_updater import update_profile_readme
+    update_profile_readme()

@@ -11,6 +11,8 @@ export default function Dashboard() {
   const [cookieUpdating, setCookieUpdating] = useState(false)
   const [backfilling, setBackfilling] = useState(false)
   const [updatingProjects, setUpdatingProjects] = useState(false)
+  const [updatingProfile, setUpdatingProfile] = useState(false)
+  const [starringRepos, setStarringRepos] = useState(false)
 
   const markCookiesUpdated = async () => {
     setCookieUpdating(true)
@@ -79,6 +81,30 @@ export default function Dashboard() {
     setUpdatingProjects(false)
   }
 
+  const updateProfile = async () => {
+    setUpdatingProfile(true)
+    setRunMsg('')
+    try {
+      const { data } = await api.post('/dashboard/update-profile')
+      setRunMsg(data.message)
+    } catch {
+      setRunMsg('Failed to update profile.')
+    }
+    setUpdatingProfile(false)
+  }
+
+  const starRepos = async () => {
+    setStarringRepos(true)
+    setRunMsg('')
+    try {
+      const { data } = await api.post('/dashboard/star-repos')
+      setRunMsg(data.message)
+    } catch {
+      setRunMsg('Failed to star repos.')
+    }
+    setStarringRepos(false)
+  }
+
   useEffect(() => { load() }, [])
 
   if (loading) return <div className="flex items-center justify-center h-full text-bee-yellow">Loading...</div>
@@ -123,10 +149,15 @@ export default function Dashboard() {
             {updatingProjects ? <Loader size={14} className="animate-spin" /> : <GitCommit size={14} />}
             {updatingProjects ? 'Updating...' : 'Update All Projects'}
           </button>
-          <button onClick={updateAllProjects} disabled={updatingProjects}
-            className="flex items-center gap-2 bg-violet-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
-            {updatingProjects ? <Loader size={14} className="animate-spin" /> : <GitCommit size={14} />}
-            {updatingProjects ? 'Updating...' : 'Update All Projects'}
+          <button onClick={updateProfile} disabled={updatingProfile}
+            className="flex items-center gap-2 bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
+            {updatingProfile ? <Loader size={14} className="animate-spin" /> : <Activity size={14} />}
+            {updatingProfile ? 'Updating...' : 'Update Profile README'}
+          </button>
+          <button onClick={starRepos} disabled={starringRepos}
+            className="flex items-center gap-2 bg-amber-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
+            {starringRepos ? <Loader size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+            {starringRepos ? 'Starring...' : 'Star All Repos'}
           </button>
           <button onClick={load} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
             <RefreshCw size={14} /> Refresh
