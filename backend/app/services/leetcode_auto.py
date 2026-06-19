@@ -107,9 +107,11 @@ async def get_badges() -> dict:
 async def get_problems(difficulty: str, limit: int = 100) -> list:
     data = await _gql("""query($limit:Int,$filters:QuestionListFilterInput){
       problemsetQuestionList:questionList(categorySlug:"" limit:$limit skip:0 filters:$filters){
-        questions:data{titleSlug title difficulty}}}""",
+        questions:data{titleSlug title difficulty isPaidOnly}}}""",
         {"limit": limit, "filters": {"difficulty": difficulty}})
-    return data.get("data", {}).get("problemsetQuestionList", {}).get("questions", [])
+    questions = data.get("data", {}).get("problemsetQuestionList", {}).get("questions", [])
+    # Filter out premium problems right at the source
+    return [q for q in questions if not q.get("isPaidOnly")]
 
 async def get_already_solved() -> set:
     data = await _gql("""query($u:String!){recentAcSubmissionList(username:$u,limit:100){titleSlug}}""", {"u": LEETCODE_USERNAME})
@@ -121,13 +123,26 @@ async def get_problem_detail(slug: str) -> dict:
       codeSnippets{lang langSlug code}}}""", {"s": slug})
     return data.get("data", {}).get("question", {}) or {}
 
-def solve(problem: dict, lang: str) -> str:
+def _clean_code(code: str) -> str:
+    code = code.strip()
+    code = re.sub(r'^```[\w]*\n?', '', code)
+    code = re.sub(r'\n?```$', '', code)
+    return code.strip()
+
+def solve(problem: dict, lang: str, attempt: int = 1, prev_status: str = "") -> str:
     title = problem.get("title", "")
-    content = (problem.get("content", "") or "")[:800]
+    content = (problem.get("content", "") or "")[:1200]
     snippet = next((s["code"] for s in (problem.get("codeSnippets") or []) if s["langSlug"] == lang), "")
     difficulty = problem.get("difficulty", "Easy")
-    code = _ask(f"""Solve this LeetCode {difficulty} problem in {lang}. The solution MUST be 100% correct and pass ALL test cases.
 
+    retry_note = ""
+    if attempt == 2:
+        retry_note = f"\nIMPORTANT: A previous attempt got '{prev_status}'. Think step-by-step about edge cases and reconsider your algorithm entirely. Do NOT repeat the same approach.\n"
+    elif attempt >= 3:
+        retry_note = f"\nIMPORTANT: Two previous attempts failed with '{prev_status}'. This is your final attempt. Use a well-known textbook algorithm that is proven correct. Prioritize correctness over cleverness.\n"
+
+    code = _ask(f"""Solve this LeetCode {difficulty} problem in {lang}. The solution MUST be 100% correct and pass ALL test cases.
+{retry_note}
 Problem: {title}
 {content}
 
@@ -135,15 +150,14 @@ Starting code:
 {snippet}
 
 Rules:
-- Return ONLY raw code, no markdown, no explanation
-- Use the most efficient correct algorithm - think carefully before writing
-- Handle ALL edge cases: empty input, single element, duplicates, negatives, max constraints
-- For Hard problems use known optimal algorithms (merge sort for counting inversions, BFS for shortest path, DP for optimization problems)
-- Do NOT redefine TreeNode, ListNode or any provided class
-- The code must produce correct output for every possible input""")
-    code = re.sub(r'^```[\w]*\n', '', code.strip())
-    code = re.sub(r'\n```$', '', code.strip())
-    return code.strip()
+- Return ONLY raw code, no markdown, no explanation, no comments
+- Use the most efficient CORRECT algorithm — think carefully about correctness first
+- Handle ALL edge cases: empty input, single element, duplicates, negatives, maximum constraints
+- For Hard problems use proven optimal algorithms (e.g. DP with memoization, two pointers, binary search, segment tree, BFS/DFS, merge sort)
+- Do NOT redefine TreeNode, ListNode or any class already provided
+- Every line of code must be correct Python3 syntax
+- The code must produce the correct output for every possible input""")
+    return _clean_code(code)
 
 async def run_daily_leetcode(num_problems: int = 10):
     from app.storage import append_log, read_json, write_json
@@ -232,32 +246,34 @@ async def run_daily_leetcode(num_problems: int = 10):
                 else:
                     await asyncio.sleep(random.randint(10, 20))
 
-                code = solve(detail, lang)
-                if not code or len(code) < 10:
-                    log(f"Empty solution for {detail.get('title')}, skipping")
-                    continue
+                # Try up to 3 times with increasingly forceful prompts
+                accepted = False
+                last_status = ""
+                for attempt in range(1, 4):
+                    code = solve(detail, lang, attempt=attempt, prev_status=last_status)
+                    if not code or len(code) < 10:
+                        log(f"Empty solution attempt {attempt} for {detail.get('title')}, skipping")
+                        break
 
-                # Submit
-                r = await _proxy("POST", f"https://leetcode.com/problems/{slug}/submit/",
-                    {"lang": lang, "question_id": detail["questionId"], "typed_code": code})
+                    r = await _proxy("POST", f"https://leetcode.com/problems/{slug}/submit/",
+                        {"lang": lang, "question_id": detail["questionId"], "typed_code": code})
 
-                if r.status_code == 403:
-                    log(f"403 on {detail.get('title')} — rate limited, waiting 3min", "error")
-                    await asyncio.sleep(180)
-                    continue
-                if not r.text.strip() or r.status_code not in (200, 201):
-                    log(f"Bad response {r.status_code} for {detail.get('title')}", "error")
-                    continue
+                    if r.status_code == 403:
+                        log(f"403 on {detail.get('title')} — rate limited, waiting 3min", "error")
+                        await asyncio.sleep(180)
+                        break
+                    if not r.text.strip() or r.status_code not in (200, 201):
+                        log(f"Bad response {r.status_code} for {detail.get('title')}", "error")
+                        break
 
-                result = r.json()
-                submission_id = result.get("submission_id")
-                if not submission_id:
-                    log(f"No submission_id for {detail.get('title')}: {str(result)[:80]}")
-                    continue
+                    result = r.json()
+                    submission_id = result.get("submission_id")
+                    if not submission_id:
+                        log(f"No submission_id for {detail.get('title')}: {str(result)[:80]}")
+                        break
 
-                # Poll result
-                status = "Timeout"
-                async with httpx.AsyncClient(timeout=60) as client:
+                    # Poll result
+                    status = "Timeout"
                     for _ in range(20):
                         await asyncio.sleep(3)
                         try:
@@ -276,17 +292,26 @@ async def run_daily_leetcode(num_problems: int = 10):
                         except Exception:
                             continue
 
-                log(f"({submitted+1}/{num_problems}) {detail.get('title')} [{detail.get('difficulty')}] -> {status}")
+                    last_status = status
+                    log(f"({submitted+1}/{num_problems}) {detail.get('title')} [{detail.get('difficulty')}] attempt {attempt} -> {status}")
 
-                if status == "Accepted":
+                    if status == "Accepted":
+                        accepted = True
+                        break
+                    # Retry on WA/TLE — wait before re-generating
+                    if attempt < 3:
+                        await asyncio.sleep(random.randint(45, 90))
+
+                if accepted:
                     submitted += 1
                     newly_solved.add(slug)
                     if slug == daily_slug:
                         state["last_daily_date"] = today
                 else:
+                    # All 3 attempts failed — mark as attempted, never retry
                     if slug == daily_slug:
                         state["last_daily_date"] = today
-                    newly_solved.add(slug)  # track attempted so never repeated
+                    newly_solved.add(slug)
                     await asyncio.sleep(random.randint(60, 90))
 
             except Exception as e:
