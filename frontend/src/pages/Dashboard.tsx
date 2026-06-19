@@ -13,6 +13,7 @@ export default function Dashboard() {
   const [updatingProjects, setUpdatingProjects] = useState(false)
   const [updatingProfile, setUpdatingProfile] = useState(false)
   const [starringRepos, setStarringRepos] = useState(false)
+  const [refreshingSession, setRefreshingSession] = useState(false)
 
   const markCookiesUpdated = async () => {
     setCookieUpdating(true)
@@ -105,6 +106,18 @@ export default function Dashboard() {
     setStarringRepos(false)
   }
 
+  const refreshLcSession = async () => {
+    setRefreshingSession(true)
+    setRunMsg('')
+    try {
+      const { data } = await api.post('/dashboard/refresh-lc-session')
+      setRunMsg(data.message)
+    } catch {
+      setRunMsg('Failed to refresh LC session.')
+    }
+    setRefreshingSession(false)
+  }
+
   useEffect(() => { load() }, [])
 
   if (loading) return <div className="flex items-center justify-center h-full text-bee-yellow">Loading...</div>
@@ -158,6 +171,11 @@ export default function Dashboard() {
             className="flex items-center gap-2 bg-amber-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
             {starringRepos ? <Loader size={14} className="animate-spin" /> : <ExternalLink size={14} />}
             {starringRepos ? 'Starring...' : 'Star All Repos'}
+          </button>
+          <button onClick={refreshLcSession} disabled={refreshingSession}
+            className="flex items-center gap-2 bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity">
+            {refreshingSession ? <Loader size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {refreshingSession ? 'Refreshing...' : 'Refresh LC Session'}
           </button>
           <button onClick={load} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
             <RefreshCw size={14} /> Refresh

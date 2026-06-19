@@ -3,6 +3,7 @@ from app.routes.deps import require_auth
 from app.storage import read_json, write_json, get_logs
 from app.services.leetcode_service import fetch_daily_problem
 from datetime import datetime, timezone
+import os
 
 router = APIRouter()
 
@@ -119,7 +120,82 @@ def backfill_github():
     threading.Thread(target=_run, daemon=True).start()
     return {"message": "GitHub contribution backfill started. Takes 15-30 mins. Check Logs page."}
 
-@router.post("/mark-cookies-updated", dependencies=[Depends(require_auth)])
+@router.post("/refresh-lc-session", dependencies=[Depends(require_auth)])
+async def refresh_lc_session():
+    """
+    Calls the Cloudflare worker /login endpoint to get fresh LeetCode cookies
+    bound to Cloudflare's edge IP, then auto-updates Render env vars.
+    """
+    import httpx
+    proxy_url = os.getenv("LEETCODE_PROXY_URL", "").strip()
+    proxy_secret = os.getenv("LEETCODE_PROXY_SECRET", "").strip()
+
+    if not proxy_url or not proxy_secret:
+        return {"message": "No proxy configured. Set LEETCODE_PROXY_URL and LEETCODE_PROXY_SECRET on Render."}
+
+    # Call the /login route on the worker
+    login_url = proxy_url.rstrip("/") + "/login"
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(login_url, headers={"X-Proxy-Secret": proxy_secret})
+        data = r.json()
+    except Exception as e:
+        return {"message": f"Worker login failed: {e}"}
+
+    if not data.get("success"):
+        return {"message": f"Login failed: {data.get('error', 'unknown')}"}
+
+    new_session = data.get("LEETCODE_SESSION", "")
+    new_csrf = data.get("LEETCODE_CSRF", "")
+
+    if not new_session:
+        return {"message": "No session returned from worker"}
+
+    # Update in-process env immediately
+    os.environ["LEETCODE_SESSION"] = new_session
+    if new_csrf:
+        os.environ["LEETCODE_CSRF"] = new_csrf
+
+    # Try to update Render env vars automatically
+    render_api_key = os.getenv("RENDER_API_KEY", "").strip()
+    service_id = os.getenv("RENDER_SERVICE_ID", "").strip()
+    render_updated = False
+    if render_api_key and service_id:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.get(
+                    f"https://api.render.com/v1/services/{service_id}/env-vars",
+                    headers={"Authorization": f"Bearer {render_api_key}", "Accept": "application/json"},
+                )
+                if r.status_code == 200:
+                    env_vars = r.json()
+                    updated = []
+                    for ev in env_vars:
+                        key = ev.get("envVar", {}).get("key", "")
+                        if key == "LEETCODE_SESSION":
+                            updated.append({"key": "LEETCODE_SESSION", "value": new_session})
+                        elif key == "LEETCODE_CSRF" and new_csrf:
+                            updated.append({"key": "LEETCODE_CSRF", "value": new_csrf})
+                        else:
+                            updated.append({"key": key, "value": ev["envVar"]["value"]})
+                    await client.put(
+                        f"https://api.render.com/v1/services/{service_id}/env-vars",
+                        headers={"Authorization": f"Bearer {render_api_key}", "Content-Type": "application/json"},
+                        json=updated,
+                    )
+                    render_updated = True
+        except Exception:
+            pass
+
+    # Reset cookie timer
+    from datetime import datetime, timezone
+    write_json("lc_cookie_state", {"updated_at": datetime.now(timezone.utc).isoformat()})
+
+    return {
+        "message": f"Session refreshed from Cloudflare edge IP. {'Render env vars updated.' if render_updated else 'Update LEETCODE_SESSION on Render manually.'} LeetCode submissions should work now."
+    }
+
+
 def mark_cookies_updated():
     """Call this after you update LEETCODE_SESSION + CSRF on Render to reset the 26-day timer."""
     from datetime import datetime, timezone
